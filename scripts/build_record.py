@@ -79,7 +79,7 @@ def validate_metadata(record):
     version = record.get("version", {})
     if not isinstance(version, dict):
         raise ValueError("Invalid recorded version")
-    if not re.fullmatch(r"\d{8}[1-9]", str(version.get("version", ""))) or type(version.get("build")) is not int or version["build"] <= 0:
+    if not re.fullmatch(r"\d{8}(?:[1-9]|0[1-9]|[1-9]\d)", str(version.get("version", ""))) or type(version.get("build")) is not int or version["build"] <= 0:
         raise ValueError("Invalid recorded release version or build")
     if not isinstance(version.get("marketing"), str) or not isinstance(record.get("environment"), dict):
         raise ValueError("Missing build-time version or environment")
