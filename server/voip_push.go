@@ -218,13 +218,8 @@ func sendIncomingPushes(ctx context.Context, callID string) {
 		return
 	}
 	for _, device := range devices {
-		provider, err := providerFor(device.Sandbox)
-		if err != nil {
-			log.Printf("VoIP 推送未配置: %v", err)
-			continue
-		}
 		requestCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		status, reason, err := provider.send(requestCtx, device, callID)
+		status, reason, err := dispatchVoIP(requestCtx, device, callID)
 		cancel()
 		if err != nil {
 			log.Printf("VoIP 推送失败: %v", err)
@@ -311,7 +306,7 @@ func newAPNsProvider(sandbox bool) (*apnsProvider, error) {
 		return nil, fmt.Errorf("APNs 密钥类型无效")
 	}
 	return &apnsProvider{key: ec, keyID: keyID, teamID: teamID, bundleID: bundleID,
-		client: &http.Client{Timeout: 4 * time.Second}}, nil
+		client: &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 func pemBody(data []byte) []byte {

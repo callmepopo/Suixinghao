@@ -38,7 +38,7 @@
 ./scripts/archive.sh
 ```
 
-默认创建未签名 Release 归档，用于本地检查，不能安装或提交商店。归档位于 `.build/release-<九位版本>-unsigned/`，同一路径已有归档时拒绝覆盖。归档目录统一保存 `source.json`：冻结该次构建的版本、源码和 Xcode/SDK 环境，并绑定生成文件的相对路径、大小及 SHA-256；未签名归档绑定主程序，签名导出绑定 `ipa/Suixinghao.ipa`。
+默认创建未签名 Release 归档，用于本地检查，不能安装或提交商店。归档位于 `.build/release-<版本>-unsigned/`，同一路径已有归档时拒绝覆盖。归档目录统一保存 `source.json`：冻结该次构建的版本、源码和 Xcode/SDK 环境，并绑定生成文件的相对路径、大小及 SHA-256；未签名归档绑定主程序，签名导出绑定 `ipa/Suixinghao.ipa`。
 
 需要签名时，先在本机配置自己的现有证书、已注册 App ID、匹配的描述文件及所需权限，并显式提供 Team：
 
@@ -54,7 +54,7 @@ SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID ./scripts/archive.sh --signed
 SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID ./scripts/archive.sh --testing
 ```
 
-该命令使用 Debug/sandbox，允许尚未提交的开发改动，保留源码 dirty/未关联状态，在关于页标为“本地测试”；只生成归档和开发签名 IPA，不安装到设备或发布更新。默认产物位于 `.build/testing-<九位版本>/`。可显式设置 `SXH_BUILD_OUTPUT` 为仓库外的私有测试目录，保存 IPA、`source.json`、签名导出参数、日志及验收材料。构建中修改源码或版本时拒绝生成完成记录；构建结束后 HEAD/版本再变化，也不改变旧包的记录。清单必须通过 [发布流程](../docs/releasing.md#来源证据) 校验旧包及它自己的记录。已有归档拒绝覆盖，后续测试请分配新版本或指定新的私有输出目录。新 App ID 与设备权限需要在 Apple 账号侧另外准备；缺少本机证书/描述文件时默认失败。
+该命令使用 Debug/sandbox，允许尚未提交的开发改动，保留源码 dirty/未关联状态，在关于页标为“本地测试”；只生成归档和开发签名 IPA，不安装到设备或发布更新。默认产物位于 `.build/testing-<版本>/`。可显式设置 `SXH_BUILD_OUTPUT` 为仓库外的私有测试目录，保存 IPA、`source.json`、签名导出参数、日志及验收材料。构建中修改源码或版本时拒绝生成完成记录；构建结束后 HEAD/版本再变化，也不改变旧包的记录。清单必须通过 [发布流程](../docs/releasing.md#来源证据) 校验旧包及它自己的记录。已有归档拒绝覆盖，后续测试请分配新版本或指定新的私有输出目录。新 App ID 与设备权限需要在 Apple 账号侧另外准备；缺少本机证书/描述文件时默认失败。
 
 已明确授权由 Xcode 使用本机登录的 Apple 开发者账号补配 App ID/描述文件时，可显式设置 `SXH_ALLOW_PROVISIONING_UPDATES=1`。仅 `--testing` 和 `--signed` 支持该选项，归档及 IPA 导出均会传入 `-allowProvisioningUpdates`；会访问 Apple 开发服务，并可能创建或更新该新 App 身份的签名资产。无需该行为时保持默认值 `0`。账号必须已在 Xcode 登录且有对应权限；脚本不保存登录凭据，不保证所需能力获批，也不上传产物、安装手机或更改服务器推送配置。
 

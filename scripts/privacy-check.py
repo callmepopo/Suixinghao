@@ -11,12 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED = {".git", ".build", "__pycache__", "node_modules", ".gocache", ".gotmp"}
 FORBIDDEN_DIRS = {"private", "legacy", "data", "logs", "recordings", "backups", "xcuserdata"}
 FORBIDDEN_SUFFIXES = {".p8", ".p12", ".pfx", ".pem", ".key", ".mobileprovision", ".ipa", ".ko", ".txz", ".wav", ".s16le", ".db", ".apk"}
-FORBIDDEN_NAMES = {"config.yaml", "hideck.yaml", "service.env", "apns.env", "app-keys.json", "voip-tokens.json", "sms-push-tokens.json", "sms-push-cursor.json", "recording.json"}
+FORBIDDEN_NAMES = {"config.yaml", "hideck.yaml", "service.env", "apns.env", "app-keys.json", "voip-tokens.json", "sms-push-tokens.json", "sms-push-cursor.json", "recording.json", "relay-grants.json"}
 PATTERNS = {
     "private key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\r?\n[A-Za-z0-9+/=]{16,}\r?\n"),
     "personal home path": re.compile(rb"/Users/[A-Za-z0-9_.-]+/"),
     "private IPv4": re.compile(rb"\b(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"),
     "literal App Key": re.compile(rb"\bhdk_[0-9a-fA-F]{64}\b"),
+    "literal relay key": re.compile(rb"\bsxr_[0-9a-fA-F]{64}\b"),
     "GitHub token": re.compile(rb"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b"),
 }
 

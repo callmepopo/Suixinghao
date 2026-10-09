@@ -14,7 +14,7 @@ if [[ $# -gt 1 ]]; then
 elif [[ ${1:-} == --signed ]]; then
   mode=signed
   : "${SXH_DEVELOPMENT_TEAM:?Set SXH_DEVELOPMENT_TEAM explicitly for a signed archive.}"
-  signing_settings=(CODE_SIGNING_ALLOWED=YES "DEVELOPMENT_TEAM=$SXH_DEVELOPMENT_TEAM")
+  signing_settings=(CODE_SIGNING_ALLOWED=YES "DEVELOPMENT_TEAM=$SXH_DEVELOPMENT_TEAM" "CODE_SIGN_IDENTITY=Apple Distribution")
   metadata_flags=(--require-clean)
 elif [[ ${1:-} == --testing ]]; then
   mode=testing

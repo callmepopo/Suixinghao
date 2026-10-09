@@ -14,7 +14,7 @@ GOCACHE="$PWD/.build/go-cache" go vet ./...
 bash build.sh
 ```
 
-构建脚本从 Git 工作区生成 `.build/<九位版本>/voice-web`（Linux amd64）与 `source.json`。编译前冻结版本、源码和 Go 环境，编译后核对源码未变并记录文件相对路径、大小及 SHA-256。普通构建标为 testing；正式候选使用 `bash build.sh --require-clean`，拒绝未提交或脏源码。后续发布清单必须校验本次 `source.json` 与二进制，不从当时的 HEAD 或版本推测旧文件来源；旧产物没有记录时重新构建。具体命令见 [发布流程](../docs/releasing.md#来源证据)。
+构建脚本从 Git 工作区生成 `.build/<版本>/voice-web`（Linux amd64）与 `source.json`。编译前冻结版本、源码和 Go 环境，编译后核对源码未变并记录文件相对路径、大小及 SHA-256。普通构建标为 testing；正式候选使用 `bash build.sh --require-clean`，拒绝未提交或脏源码。后续发布清单必须校验本次 `source.json` 与二进制，不从当时的 HEAD 或版本推测旧文件来源；旧产物没有记录时重新构建。具体命令见 [发布流程](../docs/releasing.md#来源证据)。
 
 只看页面可运行：
 
@@ -35,3 +35,7 @@ GOCACHE="$PWD/.build/go-cache" VOICE_WEB_ADDR=127.0.0.1:17581 go run . serve-pag
 现有录音实现缺少或损坏配置时默认开启。新部署务必先复制 `recording.json.example`（关闭）到私有运行目录；开启前取得适用授权。这个行为没有在本轮隐式改变，不能仅因复制了代码就认为录音关闭。
 
 本轮编译、无端口 race 子集和 vet 已验证；完整 HTTP/WebSocket 测试需本地端口绑定权限，受限环境未能运行。公共 CI 配置包含完整测试，当前尚未在 GitHub 执行。已知限制及分层验收见 [需求与验收](../docs/requirements.md)。
+
+## 发布者推送中继模式
+
+同一二进制的 `relay` 命令只启动受限中继，不启动电话／短信轮询或模块工作线程。`relay-issue`／`relay-revoke` 管理每后端独立授权。用户服务配置中继后转发固定VoIP／短信事件，未配置时保留自行签名者直接APNs模式。详见 [中继部署与契约](../docs/push-relay.md)。候选尚未部署、实发或完成锁屏验收。

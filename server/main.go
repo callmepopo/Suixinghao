@@ -142,6 +142,13 @@ func stream(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithDeadline(r.Context(), expiry.(time.Time))
 	defer cancel()
+	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "relay") {
+		if err := relayCommand(appContext, os.Args[1:]); err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+		return
+	}
 	stopWatch := context.AfterFunc(appContext, cancel)
 	defer stopWatch()
 	bindAudio(key)

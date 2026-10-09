@@ -47,3 +47,5 @@ GitHub Release 公开标签、完整提交、版本、构建号、环境、脱�
 [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations)把产物和构建工作流、源码提交联系起来；可复现构建还要求相同条件得到相同指定产物，本项目尚未实现或验收这种保证。
 
 App Store 的设备适配与处理会改变分发包，不能把用户下载包与上传 IPA 的整体哈希不同直接判为源码不同，也不能仅凭哈希、版本号、商店签名或源码链接证明所有代码一致。[Apple 设备适配说明](https://developer.apple.com/documentation/xcode/reducing-your-app-s-size)。公开流程提供可追溯证据，避免宣称已完成商店下载包的独立等价验证。
+
+版本分配现使用北京时间日期＋两位当日序号（01～99），例如 `2026100910`；历史九位版本保持原值。源码预览可在用户明确授权下公开已冻结的develop提交并标记prerelease；不得据此声称main、真机、TestFlight或商店验收通过。正式发布仍按上文验收门槛执行。

@@ -17,8 +17,9 @@ def read():
             raise ValueError(f"Missing version setting: {key}")
         return match.group(1)
     version = value("SXH_RELEASE_VERSION")
-    if not re.fullmatch(r"\d{8}[1-9]", version):
-        raise ValueError("Release version must be YYYYMMDD plus 1..9")
+    # Read historical nine-digit versions without changing their identity.
+    if not re.fullmatch(r"\d{8}(?:[1-9]|0[1-9]|[1-9]\d)", version):
+        raise ValueError("Release version must be YYYYMMDD plus 01..99 (legacy 1..9 accepted)")
     dt.datetime.strptime(version[:8], "%Y%m%d")
     build = int(value("CURRENT_PROJECT_VERSION"))
     if not 1 <= build <= 9999:
@@ -36,11 +37,11 @@ if __name__ == "__main__":
         today = dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d")
         if today < metadata["version"][:8]:
             raise ValueError("Clock precedes current release date")
-        sequence = int(metadata["version"][-1]) + 1 if today == metadata["version"][:8] else 1
-        if sequence > 9:
-            raise ValueError("Nine releases already reserved today; wait until tomorrow")
+        sequence = int(metadata["version"][8:]) + 1 if today == metadata["version"][:8] else 1
+        if sequence > 99:
+            raise ValueError("99 releases already reserved today; wait until tomorrow")
         source = CONFIG.read_text()
-        source = re.sub(r"^(SXH_RELEASE_VERSION\s*=).*", rf"\g<1> {today}{sequence}", source, flags=re.M)
+        source = re.sub(r"^(SXH_RELEASE_VERSION\s*=).*", rf"\g<1> {today}{sequence:02d}", source, flags=re.M)
         source = re.sub(r"^(CURRENT_PROJECT_VERSION\s*=).*", rf"\g<1> {metadata['build'] + 1}", source, flags=re.M)
         CONFIG.write_text(source)
         metadata = read()

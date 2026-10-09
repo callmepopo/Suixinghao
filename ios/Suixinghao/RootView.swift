@@ -535,6 +535,11 @@ struct SettingsView: View {
                         Button("刷新连接诊断") { model.refreshDiagnostics() }
                     }
                 }
+                Section("数据与推送") {
+                    Text("通讯录只在本机匹配。电话和短信连接你配置的服务器；录音是否开启由该服务器决定，请在通话前告知参与者。")
+                    Text("系统来电与短信提醒由 Apple 投递。若服务器启用官方推送中继，发布者会临时处理设备推送标识和随机来电标识，不接收电话音频、号码或短信正文。")
+                }
+                .font(.footnote)
                 Section("关于随行号") {
                     LabeledContent("当前版本", value: AppVersion.current)
                     LabeledContent("构建号", value: AppVersion.build)

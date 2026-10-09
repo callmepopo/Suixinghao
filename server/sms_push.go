@@ -250,12 +250,8 @@ func sendSMSAlerts(ctx context.Context) error {
 		return err
 	}
 	for _, device := range devices {
-		provider, err := providerFor(device.Sandbox)
-		if err != nil {
-			return err
-		}
 		requestCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		status, reason, err := provider.sendSMSAlert(requestCtx, device)
+		status, reason, err := dispatchSMS(requestCtx, device)
 		cancel()
 		if err != nil {
 			return err
