@@ -1,12 +1,12 @@
 # App Store后续与推送边界
 
-版本202610094。GitHub公开iOS源码、用户通过App Store安装、填写自己服务地址/Key的模式可行。已有官方案例 [Nextcloud iOS源码](https://github.com/nextcloud/ios) 直接链接 [美区App Store](https://apps.apple.com/us/app/nextcloud/id1125420102)，其商店说明允许用户自行托管。开源与Apple签名/审核是独立流程，开源不等于上架已通过。
+GitHub公开iOS源码、用户通过App Store安装、填写自己服务地址/Key的模式可行。已有官方案例 [Nextcloud iOS源码](https://github.com/nextcloud/ios) 直接链接 [美区App Store](https://apps.apple.com/us/app/nextcloud/id1125420102)，其商店说明允许用户自行托管。开源与Apple签名/审核是独立流程，开源不等于上架已通过。
 
 ## 新身份与当前状态
 
-公共工程名称Suixinghao，Bundle ID预定 `com.junpo.suixinghao`；尚待发布者Apple账号注册、权限与签名核对。开发者账号、证书、APNs私钥、登记设备、App Store Connect凭据只在发布者私有资料维护，不进入GitHub。旧App保留，新App手工重新配置，不把旧身份的锁屏验收自动转移到新身份。
+公共工程名称Suixinghao，Bundle ID为 `com.junpo.suixinghao`，已完成匹配开发签名包的实际装机验证；正式分发与production推送仍待验证。开发者账号、证书、APNs私钥、登记设备、App Store Connect凭据只在发布者私有资料维护，不进入GitHub。身份迁移后使用新版及其独立凭据，不把旧身份的锁屏验收自动转移到新身份。
 
-iOS工程最低目标18.0。当前保留前台通话、CallKit/PushKit、直接APNs实现，但本轮只进行公开材料和本机构建整理，未签名安装新身份、未验证production推送、未提交美区审核。
+iOS工程最低目标18.0。当前保留前台通话、CallKit/PushKit、直接APNs实现，新身份已完成开发签名、装机及前台服务接入；新版推送、真实通话与锁屏仍待验收，未验证production推送、未提交美区审核。
 
 ## 自建服务与锁屏推送
 
