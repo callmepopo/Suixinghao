@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -229,5 +230,23 @@ func TestRelayClientConfigurationAndFixedPayload(t *testing.T) {
 	_, reason, err := dispatchVoIP(context.Background(), voipDevice{}, "")
 	if err != nil || reason != "ProviderRejected" {
 		t.Fatal("untrusted relay reason was not sanitized")
+	}
+}
+
+// Exercise the real process entry point: a relay must never start phone workers.
+func TestRelayMainDispatch(t *testing.T) {
+	if os.Getenv("SXH_TEST_RELAY_MAIN") == "1" {
+		os.Args = []string{"voice-web", "relay"}
+		os.Unsetenv("VOICE_WEB_RELAY_ENVIRONMENT")
+		main()
+		os.Exit(0)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRelayMainDispatch$")
+	command.Env = append(os.Environ(), "SXH_TEST_RELAY_MAIN=1")
+	output, err := command.CombinedOutput()
+	if ctx.Err() != nil || err == nil || !strings.Contains(string(output), "relay requires explicit environment") || strings.Contains(string(output), "HiDeck") {
+		t.Fatalf("relay entry point failed isolation: err=%v output=%s", err, output)
 	}
 }
