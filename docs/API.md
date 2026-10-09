@@ -130,7 +130,7 @@ POST `/app/voip-token` / `/app/sms-push-token` JSON `{"token":"<hex-token>","env
 
 VoIP首次观测新ringing/call_id时发送一次APNs：HTTP/2+ES256，topic为自己的Bundle ID+.voip、push-type=voip、到期0，仅call_id不含号码。普通短信提醒正文固定，不含短信正文或发送者；约10秒读取上游，首次以现有最新短信为基线，仅之后新入站触发。APNs可能延迟/合并；推送失败不阻断网页前台接听。
 
-当前直接APNs实现适用于 **部署者自行构建并用自己的Apple账号签名的App**。正式商店App使用发布者的推送topic与授权，用户自有Apple Key无法给发布者App直接推送。本项目尚未实现商店推送relay，不能把自配URL/Key等同商店锁屏可用；见 [App Store后续](app-store.md)。
+当前直接APNs实现适用于 **部署者自行构建并用自己的Apple账号签名的App**。正式商店App使用发布者的推送topic与授权，用户自有Apple Key无法给发布者App直接推送。本项目已提供官方推送relay，用户服务另需配置中继URL和独立后端凭据；开发包Sandbox锁屏已验，Production／TestFlight仍待验证，不能把自配URL/App Key等同正式商店锁屏已验；见 [App Store后续](app-store.md)。
 
 ## 连接历史（App Key）
 

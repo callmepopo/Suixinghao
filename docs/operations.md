@@ -13,7 +13,7 @@
 ## 本地日常开发与手机测试
 
 - 源码在同一repo的develop，AI按根版本配置分配新批次并完成本地检查。签名配置、开发IPA、装机记录、私有验收证据放仓库外private/testing，不复制源码到private。
-- 用户手机通过对应批次验收后，才合main和建立正式源码标签；再构建正式候选包进TestFlight验证production环境，同一正式构建用于美区审核和GitHub版本映射。
+- 用户手机通过对应批次验收后，才合main和建立正式源码标签；再构建正式候选包进TestFlight验证production环境，同一正式构建用于选定海外地区审核和GitHub版本映射；首版范围见 [商店说明](app-store.md)。
 - 旧private/legacy是只读历史回退材料，不再作为日常开发入口。public/private划分与develop/main阶段划分是两件事。具体操作以 [发布流程](releasing.md) 为准。
 - 安装、前台接入、真实功能与正式推送分别记录结果；通过项见CHANGELOG，未实际执行的项目保持待验。开发测试不自动触发GitHub或商店发布。
 
@@ -35,7 +35,7 @@
 | HTTP401 | App Key是否已撤销、是否错用电话会话、短期会话是否重启失效 |
 | HTTP403/网页声道失败 | HTTPS来源/Host/端口、Cookie、代理WebSocket升级及SSE缓冲 |
 | 注册成功但无声 | 精确模块内核、root ADB目标、资源SHA、ALSA设备；注册不证明音频路由 |
-| 手机前台可用但无锁屏来电 | sandbox/production、签名topic、推送授权/设备token；商店relay当前未实现 |
+| 手机前台可用但无锁屏来电 | sandbox/production、签名topic、推送授权/设备token；官方relay已有实现，Production需独立TestFlight验收 |
 | 提交短信但未送达 | 上游限流/提交状态、SIM服务与接收者确认；避免重复提交 |
 
 向GitHub报问题只提供版本、平台/内核、脱敏状态与复现步骤，禁止上传完整配置、接口原响应、号码、短信、录音、签名文件或日志原包。
