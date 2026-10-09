@@ -17,7 +17,7 @@ URL与App Key足以表达用户的业务服务接入。锁屏来电还需要对�
 | 用户自己构建并签名App | 用户注册自己的App ID，用自己Apple账号的私钥配置自己的服务；Debug sandbox，TestFlight/App Store production |
 | 从发布者App Store下载App | App属于发布者签名/topic；不能让用户的普通Apple Key给发布者App直接推送，也不能分发发布者.p8给用户 |
 
-正式商店版自建服务的推送relay已有 [受限候选实现](push-relay.md)，**已完成独立实例的HTTPS与授权检查，尚未完成Apple实发或真机验收**。在支持商店锁屏能力前，仍需联调与审核relay：由发布者安全持有APNs私钥、以受限路由授权转发来电/固定短信通知，隔离用户服务器，不开放任意推送topic/任意payload；定义最小token/路由数据、撤销、限流和保留策略并更新隐私政策。候选接口、发布者配置和用户服务适配见中继文档；不能称为已可用的生产服务。若先以前台功能上线，必须明确无relay时的锁屏能力限制，不能在商店描述中承诺完整锁屏来电。
+正式商店版自建服务的推送relay已有 [受限候选实现](push-relay.md)，**Sandbox开发包锁屏接听和双向声音已由用户确认，系统免提切换仍待修复，Production／TestFlight尚未验收**。在支持商店锁屏能力前，仍需联调与审核relay：由发布者安全持有APNs私钥、以受限路由授权转发来电/固定短信通知，隔离用户服务器，不开放任意推送topic/任意payload；定义最小token/路由数据、撤销、限流和保留策略并更新隐私政策。候选接口、发布者配置和用户服务适配见中继文档；不能称为已可用的生产服务。若先以前台功能上线，必须明确无relay时的锁屏能力限制，不能在商店描述中承诺完整锁屏来电。
 
 私钥示例仅 [apns-self-build.env.example](../deploy/unraid/examples/apns-self-build.env.example)，所有值留空，仅供自行签名者填入私有service.env。开发者私钥始终留服务器，不进App和源码。
 

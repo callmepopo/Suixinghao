@@ -17,6 +17,7 @@ final class VoiceAudio {
     private var routeRecovery = UUID()
     private var observers: [NSObjectProtocol] = []
     var onInterrupted: (() -> Void)?
+    var onSpeakerChanged: ((Bool) -> Void)?
     private(set) var muted = false
     private var active = false
     var isActiveCall: Bool { active }
@@ -47,7 +48,7 @@ final class VoiceAudio {
         generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
     }
     #endif
-    func start(useSpeaker: Bool = false, callKitManaged: Bool = false) async throws {
+    func start(useSpeaker: Bool? = nil, callKitManaged: Bool = false) async throws {
         guard engine == nil else { return }
         let attempt = generation
         let granted = await AVAudioApplication.requestRecordPermission()
@@ -55,13 +56,19 @@ final class VoiceAudio {
         guard granted else { throw APIError(message: "请在系统设置中允许随行号使用麦克风后再拨号。") }
         let session = AVAudioSession.sharedInstance()
         var options: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
-        if useSpeaker { options.insert(.defaultToSpeaker) }
+        if useSpeaker == true { options.insert(.defaultToSpeaker) }
         if !callKitManaged {
             try session.setCategory(.playAndRecord, mode: .default, options: options)
             try session.setPreferredIOBufferDuration(0.02)
             try session.setActive(true)
         }
-        try session.overrideOutputAudioPort(useSpeaker ? .speaker : .none)
+        // CallKit may already have applied the user's system speaker selection.
+        // Only explicit in-app choices override it; initial managed startup preserves it.
+        if let useSpeaker {
+            try session.overrideOutputAudioPort(useSpeaker ? .speaker : .none)
+        } else if !callKitManaged {
+            try session.overrideOutputAudioPort(.none)
+        }
         let graph = AVAudioEngine()
         do {
             let output = AVAudioPlayerNode()
@@ -108,9 +115,13 @@ final class VoiceAudio {
                 Task { @MainActor in self?.onInterrupted?() }
             })
             observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
-                guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                      raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
-                Task { @MainActor in self?.onInterrupted?() }
+                let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                Task { @MainActor in
+                    self?.reportSpeakerRoute()
+                    if raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+                        self?.onInterrupted?()
+                    }
+                }
             })
             observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self] _ in
                 Task { @MainActor in await self?.resumeAfterConfigurationChange(graph) }
@@ -121,6 +132,7 @@ final class VoiceAudio {
             try await Task.sleep(nanoseconds: 120_000_000)
             guard engine === graph else { throw CancellationError() }
             if !graph.isRunning { try graph.start(); output.play() }
+            reportSpeakerRoute()
         } catch {
             // A hangup may have stopped this graph while startup was suspended.
             guard engine === graph || engine == nil else { throw error }
@@ -133,6 +145,10 @@ final class VoiceAudio {
             if !callKitManaged { try? session.setActive(false, options: .notifyOthersOnDeactivation) }
             throw error
         }
+    }
+    private func reportSpeakerRoute() {
+        let speaker = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
+        onSpeakerChanged?(speaker)
     }
     private func resumeAfterConfigurationChange(_ graph: AVAudioEngine) async {
         // iOS can consume queued buffers while rebuilding the output route without playing them.
@@ -147,6 +163,7 @@ final class VoiceAudio {
             player?.stop()
             if !graph.isRunning { try graph.start() }
             player?.play()
+            reportSpeakerRoute()
         }
         catch { onInterrupted?() }
     }

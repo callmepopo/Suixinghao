@@ -38,7 +38,7 @@ App 不内置个人服务地址或 Key，Key 保存在本机钥匙串；服务�
 
 新 App 身份为 **Suixinghao / com.junpo.suixinghao**，显示名称为“随行号”。它按新 App 安装，需重新配置服务；旧 App 的本机数据不会自动迁移。
 
-正式分发计划为美区 App Store。官方 App 的自托管锁屏推送需要受控 APNs 中继；现已提供候选实现，已在独立生产环境实例完成启动、HTTPS及授权检查，但尚未完成Apple实发／真机锁屏验收；自行签名者可使用自己的 Apple 身份配置 APNs。详见 [App Store 后续步骤](docs/app-store.md) 和 [推送中继](docs/push-relay.md)。
+正式分发计划为美区 App Store。官方 App 的自托管锁屏推送需要受控 APNs 中继；现已提供候选实现，已在独立生产环境实例完成启动、HTTPS及授权检查，Sandbox开发包已由用户确认锁屏来电、接听和双向声音；系统免提切换待修复，Production／TestFlight验收尚未完成；自行签名者可使用自己的 Apple 身份配置 APNs。详见 [App Store 后续步骤](docs/app-store.md) 和 [推送中继](docs/push-relay.md)。
 
 正式版本将对应固定源码标签、提交、构建环境和产物证明。App 关于页显示源码身份；未提交或有修改的本地构建会明确标记。详见 [发布与源码追溯](docs/releasing.md)。
 

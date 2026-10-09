@@ -116,6 +116,7 @@ final class AppModel {
                 await self.endCall(reason: "音频设备发生变化，本次通话已结束，请重新拨打。")
             }
         }
+        audio.onSpeakerChanged = { [weak self] value in self?.speakerEnabled = value }
         voip = VoIPCalls(model: self)
         telemetry.canUpload = { [weak self] in self?.canSyncHistory == true }
         telemetry.onUpload = { [weak self] in self?.scheduleHistoryUpload() }
@@ -1179,7 +1180,6 @@ final class AppModel {
             }
             audio.setActiveCall(status?.state == "active")
             audio.setMuted(muted)
-            speakerEnabled = target
         } catch {
             await endCall(reason: "声音输出切换失败，已结束通话，请重试。")
         }
