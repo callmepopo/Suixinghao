@@ -16,6 +16,8 @@
 
 从本地 develop 修改代码，先运行模块检查。手机测试使用 `ios/scripts/archive.sh --testing`：Team、已有签名资产由开发者私有配置提供；默认本地输出，也可用 `SXH_BUILD_OUTPUT` 指向仓库外的测试目录。该脚本不注册账号、不安装手机、不上传、不部署服务器。
 
+归档和导出默认只用本机已有签名资产。已授权 Xcode 用本机登录账号向 Apple 补配新 App 身份时，显式设置 `SXH_ALLOW_PROVISIONING_UPDATES=1`；仅签名模式支持，归档与导出都会启用 `-allowProvisioningUpdates`。这会访问 Apple 开发服务并可能创建/更新签名资产，仍不上传产物或改服务端 APNs。所需能力无法配齐时停止，不能跳过权限校验或使用旧 App 的描述文件代替。账号、Team 与诊断日志只留本机私有区。
+
 测试构建的归档目录保存脚本生成的 `source.json`，另记测试项目和通过/待验结果。测试只能记录脱敏结论；真实短信、号码、Key、签名配置和 IPA 不进入仓库。新 App 身份需要先在 Apple 登记并配置本机签名；不能套用旧 App 的描述文件。
 
 手机测试通过后，在没有未提交修改时将 develop 合入 main，固定提交并制作候选标签。开始下一轮变更时先运行 `python3 ios/scripts/version.py --next`；唯一版本来源是根 Version.xcconfig，Apple 构建号随脚本递增。

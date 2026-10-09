@@ -6,6 +6,7 @@ mode=unsigned
 configuration=Release
 channel=release
 signing_settings=(CODE_SIGNING_ALLOWED=NO)
+provisioning_options=()
 metadata_flags=()
 if [[ $# -gt 1 ]]; then
   print -u2 "Usage: scripts/archive.sh [--signed | --testing]"
@@ -23,6 +24,16 @@ elif [[ ${1:-} == --testing ]]; then
   signing_settings=(CODE_SIGNING_ALLOWED=YES "DEVELOPMENT_TEAM=$SXH_DEVELOPMENT_TEAM")
 elif [[ $# -gt 0 ]]; then
   print -u2 "Usage: scripts/archive.sh [--signed | --testing]"
+  exit 2
+fi
+if [[ ${SXH_ALLOW_PROVISIONING_UPDATES:-0} == 1 ]]; then
+  if [[ $mode == unsigned ]]; then
+    print -u2 "Provisioning updates require --signed or --testing."
+    exit 2
+  fi
+  provisioning_options=(-allowProvisioningUpdates)
+elif [[ ${SXH_ALLOW_PROVISIONING_UPDATES:-0} != 0 ]]; then
+  print -u2 "SXH_ALLOW_PROVISIONING_UPDATES must be 0 or 1."
   exit 2
 fi
 source scripts/source-settings.sh
@@ -45,8 +56,8 @@ elif [[ $mode == testing ]]; then
   record_channel=testing
 fi
 python3 ../scripts/build_record.py capture --module ios --channel "$record_channel" --source-json "$source_metadata" --version-json "$version_metadata" --output "$out/build-input.json"
-# Use existing local signing assets only; do not request profiles or publish.
-if ! xcodebuild -project Suixinghao.xcodeproj -scheme Suixinghao -configuration "$configuration" -destination 'generic/platform=iOS' -archivePath "$out/Suixinghao.xcarchive" -derivedDataPath "$out/DerivedData" "${signing_settings[@]}" "SXH_BUILD_CHANNEL=$channel" "${source_settings[@]}" archive > "$out/archive.log" 2>&1; then
+# Existing local assets by default. Provisioning requests require explicit opt-in.
+if ! xcodebuild "${provisioning_options[@]}" -project Suixinghao.xcodeproj -scheme Suixinghao -configuration "$configuration" -destination 'generic/platform=iOS' -archivePath "$out/Suixinghao.xcarchive" -derivedDataPath "$out/DerivedData" "${signing_settings[@]}" "SXH_BUILD_CHANNEL=$channel" "${source_settings[@]}" archive > "$out/archive.log" 2>&1; then
   print -u2 "Archive failed. Review local log: $out/archive.log"
   exit 1
 fi
@@ -68,7 +79,7 @@ Path(os.environ['EXPORT_PATH_FOR_SXH']).write_bytes(plistlib.dumps({
     'thinning': '<none>', 'manageAppVersionAndBuildNumber': False, 'uploadSymbols': False,
 }))
 PY
-  if ! xcodebuild -exportArchive -archivePath "$out/Suixinghao.xcarchive" -exportPath "$out/ipa" -exportOptionsPlist "$out/ExportOptions.plist" > "$out/export.log" 2>&1; then
+  if ! xcodebuild "${provisioning_options[@]}" -exportArchive -archivePath "$out/Suixinghao.xcarchive" -exportPath "$out/ipa" -exportOptionsPlist "$out/ExportOptions.plist" > "$out/export.log" 2>&1; then
     print -u2 "Local IPA export failed ($mode). Review local log: $out/export.log"
     exit 1
   fi

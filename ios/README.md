@@ -46,7 +46,7 @@
 SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID ./scripts/archive.sh --signed
 ```
 
-正式签名归档要求干净且已提交的源码，使用 Release/production APNs，同时以 `app-store-connect` 方法导出本地 IPA；脚本不会联网申请签名资产、导出 OTA、上传 TestFlight 或部署。归档完成后通过 Xcode Organizer 人工核对身份、隐私报告和版本，再执行另行授权的分发。自行构建者需在 Xcode 中配置自己拥有的 Bundle ID，并与后端推送身份保持一致。
+正式签名归档要求干净且已提交的源码，使用 Release/production APNs，同时以 `app-store-connect` 方法导出本地 IPA；默认只使用本机已有签名资产，不申请新资产。脚本不导出 OTA、上传 TestFlight 或部署。归档完成后通过 Xcode Organizer 人工核对身份、隐私报告和版本，再执行另行授权的分发。自行构建者需在 Xcode 中配置自己拥有的 Bundle ID，并与后端推送身份保持一致。
 
 日常手机测试包可使用本机已经安装的开发签名资产：
 
@@ -54,7 +54,13 @@ SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID ./scripts/archive.sh --signed
 SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID ./scripts/archive.sh --testing
 ```
 
-该命令使用 Debug/sandbox，允许尚未提交的开发改动，保留源码 dirty/未关联状态，在关于页标为“本地测试”；只生成归档和开发签名 IPA，不安装到设备或发布更新。默认产物位于 `.build/testing-<九位版本>/`。可显式设置 `SXH_BUILD_OUTPUT` 为仓库外的私有测试目录，保存 IPA、`source.json`、签名导出参数、日志及验收材料。构建中修改源码或版本时拒绝生成完成记录；构建结束后 HEAD/版本再变化，也不改变旧包的记录。清单必须通过 [发布流程](../docs/releasing.md#来源证据) 校验旧包及它自己的记录。已有归档拒绝覆盖，后续测试请分配新版本或指定新的私有输出目录。新 App ID 与设备权限需要在 Apple 账号侧另外准备；缺少本机证书/描述文件时命令失败，不会自动联网补配。
+该命令使用 Debug/sandbox，允许尚未提交的开发改动，保留源码 dirty/未关联状态，在关于页标为“本地测试”；只生成归档和开发签名 IPA，不安装到设备或发布更新。默认产物位于 `.build/testing-<九位版本>/`。可显式设置 `SXH_BUILD_OUTPUT` 为仓库外的私有测试目录，保存 IPA、`source.json`、签名导出参数、日志及验收材料。构建中修改源码或版本时拒绝生成完成记录；构建结束后 HEAD/版本再变化，也不改变旧包的记录。清单必须通过 [发布流程](../docs/releasing.md#来源证据) 校验旧包及它自己的记录。已有归档拒绝覆盖，后续测试请分配新版本或指定新的私有输出目录。新 App ID 与设备权限需要在 Apple 账号侧另外准备；缺少本机证书/描述文件时默认失败。
+
+已明确授权由 Xcode 使用本机登录的 Apple 开发者账号补配 App ID/描述文件时，可显式设置 `SXH_ALLOW_PROVISIONING_UPDATES=1`。仅 `--testing` 和 `--signed` 支持该选项，归档及 IPA 导出均会传入 `-allowProvisioningUpdates`；会访问 Apple 开发服务，并可能创建或更新该新 App 身份的签名资产。无需该行为时保持默认值 `0`。账号必须已在 Xcode 登录且有对应权限；脚本不保存登录凭据，不保证所需能力获批，也不上传产物、安装手机或更改服务器推送配置。
+
+```sh
+SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID SXH_ALLOW_PROVISIONING_UPDATES=1 ./scripts/archive.sh --testing
+```
 
 App Store 分发还需要新的 App ID/商店记录、生产推送方案、隐私政策和 App Privacy 声明、可用审核服务与独立临时 Key、硬件互动演示及完整真机测试。这些条件尚未完成，不宣称已经上架或通过审核。商店安装版通过 App Store 更新。
 
