@@ -2,11 +2,23 @@
 
 自托管的蜂窝电话与短信服务：在 Unraid 上连接 DJI 第一代 QDC507 4G 模块，使用网页完成基础验证，使用原生 iOS 随行号作为日常客户端。用户自行部署服务，在 App 中填写 HTTPS 根地址和该服务签发的 App Key。
 
-Self-hosted cellular calls and SMS on Unraid, with a native iOS client. Bring your own compatible hardware, service URL, and App Key. This repository contains our deployment integration, API server, test web interface, and iOS source.
+将家里的蜂窝通信模块接入自建服务，在 iPhone 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-**当前为源码准备阶段。新身份的 App 尚未发布至 App Store；本页暂不提供商店下载链接。** 已有私人部署与旧开发包的测试结果，不等于新身份、正式推送或所有硬件组合已通过验收。
+> **当前状态：源码已整理为 main 首次公开版本。** 开发包已实测锁屏来电提醒、接听、双向声音及后台通话。App Store 正式构建已上传，尚未提交审核，目前没有商店下载链接。锁屏接听后的系统免提会自动回退，作为已知问题保留；App 内扬声器切换此前已验证正常。Production／TestFlight 推送仍需独立验证。
 
-## 四部分关系
+[部署指南](deploy/unraid/README.md) · [iOS 客户端](ios/README.md) · [接口规范](docs/API.md) · [已知限制](docs/limitations.md) · [问题反馈](https://github.com/callmepopo/Suixinghao/issues)
+
+## 能做什么
+
+- **电话**：拨号、来电接听、挂断，以及通过 CallKit 显示系统来电界面。
+- **短信**：在 iPhone 中查看和发送短信；数据来自用户自己的服务。
+- **自定义接入**：用户填写自己的 HTTPS 服务地址和独立 App Key，App 不内置个人账号或服务配置。
+- **网页验证**：先验证电话与部署是否可用，再使用 App；网页也提供 App Key 管理入口。
+- **部署与推送**：提供 Unraid 部署适配、驱动来源说明和受控 APNs 推送中继代码。
+
+需要兼容模块、SIM 卡、Unraid 及可用的 HTTPS 服务；本项目不提供号码、套餐或公共电话托管。运营商费用由用户自行承担，支持环境见[硬件说明](docs/hardware.md)。
+
+## 项目组成
 
 | 部分 | 职责 | 在本仓库中的位置 |
 |---|---|---|
@@ -17,7 +29,7 @@ Self-hosted cellular calls and SMS on Unraid, with a native iOS client. Bring yo
 
 网页和 App 共用一套服务、一个模块和一路通话。多把 App Key 代表多个授权客户端，不代表可以同时拨打多路电话。
 
-## 从哪里开始
+## 开始使用
 
 1. 阅读 [硬件与依赖](docs/hardware.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。只有已验证环境可以按本方案使用；驱动包由原来源取得，本仓库不分发固件或驱动二进制。
 2. 按 [Unraid 部署说明](deploy/unraid/README.md) 配置 HiDeck、服务和 HTTPS 反代。模板中的凭据均由部署者自行设置。
@@ -25,6 +37,19 @@ Self-hosted cellular calls and SMS on Unraid, with a native iOS client. Bring yo
 4. 按 [iOS 构建说明](ios/README.md) 构建新客户端，填写根地址 `https://voice.example.org` 和自己的 Key。地址不要包含 `/voice-test/`，也不是 Unraid 管理接口。
 
 只检查源码、预览页面不需要硬件，参见 [服务端说明](server/README.md) 和 [iOS 说明](ios/README.md)。正式部署涉及设备和驱动写入，务必先核对支持环境并按分步说明执行。
+
+## 仓库目录
+
+```text
+server/          电话与 API 服务，web/ 为测试网页
+deploy/          部署材料：unraid/ 为宿主适配，relay/ 为推送中继
+ios/             原生随行号 iOS App 与构建脚本
+docs/            架构、硬件、接口、隐私、运行及发布说明
+licenses/        自有服务依赖的许可证文本
+Version.xcconfig 唯一版本配置
+```
+
+HiDeck 是独立上游依赖，不包含其源码；部署者从原项目获取。日常在 develop 开发，main 维护公开版本；本地签名、测试包、服务配置及真实数据不上传。发布流程见[开发与发布说明](docs/releasing.md)。
 
 ## 接口与隐私
 
