@@ -3,7 +3,17 @@
 - 本仓库是唯一维护源码；`../private/` 为私有原始资料及回退档案，禁止提交其内容。
 - `../hideck/` 为上游只读克隆，禁止修改或复制为自有源码。第三方许可见 THIRD_PARTY_NOTICES.md。
 - `server/` 是统一电话/API 服务，`server/web/` 是内嵌测试网页；`deploy/unraid/` 是部署适配；`ios/` 是随行号客户端。
-- 版本唯一来源是根 Version.xcconfig；修改前通过 `python3 ios/scripts/version.py --next` 分配，发布后不复用。同一轮协作子任务共用主代理已分配的版本，不各自递增；运行状态记录于仓库外维护日志。
+## 版本管理（从下一次软件更新开始）
+
+- 现有日期编号、已发布提交、已安装／上传产物及来源记录保持原值，不回改历史。
+- App与服务端分别管理产品版本（如各自的0.1.0）；仅升级实际发生功能或修复变化的组件，不因另一组件更新而同步升号。
+- 只改README、文档、AGENTS.md或整理材料，不升级产品版本，不递增Apple构建号，不重建软件。
+- 同一App发布版本从开发测试到TestFlight／App Store保持同一产品版本；每次新构建的Apple内部构建号单独递增，不能复用已上传构建号。源码、签名与产物证据仍分别记录。
+- 手机关于页分别显示“App版本”和“服务端版本”。GitHub是源码来源、App Store是安装渠道，不作为额外产品版本；GitHub发布说明明确对应的App／服务端版本与源码提交。
+- 每个组件的版本值各自保持单一权威来源：App为根Version.xcconfig，服务为server/Version.xcconfig。`python3 ios/scripts/version.py --module ios --next`或`--module server --next`只升级选定组件；同App版本新构建用`--module ios --build-only`。禁止手改多份副本或全局同步递增。
+- 运行状态与本地验收写仓库外维护日志，不以文档批次给旧产物重贴版本。
+
+## 其他工程边界
 - 自有代码使用 MIT，第三方许可独立。配置只给示例，禁止真实域名、内网地址、凭据、号码、短信、录音、设备标识及签名资料进入源码、日志或截图。
 - iOS 工程身份为 Suixinghao，Bundle ID 为 com.junpo.suixinghao。新 App 手工重新配置；身份迁移安装须先核验新版签名和运行，再按当轮授权处理旧 App。
 - 不部署线上、不拨号/发短信、不操作硬件、不发布 GitHub 或 App Store，除非当前用户指令明确涵盖相应步骤。模拟和编译不等于真机或锁屏验收。

@@ -725,9 +725,10 @@ final class AppModel {
             hangupTask?.cancel(); hangupTask = nil
         }
         if ownedCallID != nil {
-            dialingStage = value.state == "active" ? "已接通" : (value.state == "dialing" ? "等待接听 · 本地等待音不代表对方已响铃" : "")
+            dialingStage = value.state == "active" ? "已接通" : (value.state == "dialing" ? "等待接听 · 运营商声音由模块提供" : "")
         }
-        audio.setWaitingTone(value.available && value.state == "dialing" && ownedCallID != nil)
+        audio.setWaitingTone(false)
+        audio.setEarlyMedia(value.available && value.media == true && value.state == "dialing" && ownedCallID == value.call_id && ownedCallID != nil)
         if value.available {
             for index in callHistory.indices where callHistory[index].endedAt == nil && callHistory[index].id != value.call_id {
                 callHistory[index].endedAt = Date()

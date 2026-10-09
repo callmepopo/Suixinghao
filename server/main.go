@@ -165,31 +165,15 @@ func stream(w http.ResponseWriter, r *http.Request) {
 					stats.discardStartup()
 				}
 				c.SetWriteDeadline(time.Now().Add(3 * time.Second))
-				if c.WriteJSON(map[string]string{"status": "电话已接通，声音传输已启动"}) != nil {
+				if c.WriteJSON(map[string]string{"status": "声音链路已启动；接通前仅接收模块声音"}) != nil {
 					return
 				}
-				// 接通即按开关自动录音：命名 日期-对手-拨打/接听；失败只提示，不影响通话。
-				var rec *pair
-				var rerr error
-				if recordingEnabled() {
-					rec, rerr = newPair(recordRoot, currentCallInfo())
-				}
-				if rerr != nil {
-					rec = nil
-					log.Printf("录音未启动: %v", rerr)
-					c.SetWriteDeadline(time.Now().Add(3 * time.Second))
-					c.WriteJSON(map[string]string{"status": "本次通话未录音（录音文件创建失败）"})
-				} else {
-					c.SetWriteDeadline(time.Now().Add(3 * time.Second))
-					c.WriteJSON(map[string]string{"status": "本次通话正在录音"})
-				}
-				// 竞态防护：读循环检查完标记到真正开始播放之间可能已被清理/尚未落盘；
-				// 这里按同一个 run 名重建标记，保证音频循环不会刚起来就因标记缺失退出。
-				if e := mediaOn(run); e != nil {
-					log.Printf("重建音频标记失败: %v", e)
+				// Controller owns the media flag; never resurrect a call after hangup.
+				if activeRun() != run {
+					continue
 				}
 				audioStart := time.Now()
-				err := runAudio(ctx, c, mic, run, rec, stats)
+				err := runAudio(ctx, c, mic, run, nil, stats)
 				stats.summary(true)
 				log.Printf("音频循环结束: 时长=%.1fs 上行=%d 下行=%d 错误=%v 上下文已取消=%v",
 					time.Since(audioStart).Seconds(), framesUp(), framesDown(), err, ctx.Err() != nil)
@@ -198,12 +182,9 @@ func stream(w http.ResponseWriter, r *http.Request) {
 					c.SetWriteDeadline(time.Now().Add(3 * time.Second))
 					c.WriteJSON(map[string]string{"error": "模块声音连接失败，通话将结束"})
 				}
-				if rec != nil {
-					rec.close()
-				}
 				if ctx.Err() == nil {
 					c.SetWriteDeadline(time.Now().Add(3 * time.Second))
-					if c.WriteJSON(map[string]string{"status": "声音已结束，录音已保存，等待下一通电话"}) != nil {
+					if c.WriteJSON(map[string]string{"status": "声音已结束，等待下一通电话"}) != nil {
 						return
 					}
 				}
@@ -244,6 +225,9 @@ func stream(w http.ResponseWriter, r *http.Request) {
 		}
 		noteUp()
 		if run := activeRun(); run != "" {
+			if !uplinkAllowed(phone.snapshot(), run, activeRun()) {
+				b = make([]byte, 320)
+			}
 			dropped := false
 			select {
 			case mic <- b:

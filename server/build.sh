@@ -11,7 +11,7 @@ case "${1:-}" in
   --require-clean) require_clean=1 ;;
   *) echo 'Usage: build.sh [--require-clean]' >&2; exit 2 ;;
 esac
-version_metadata=$(python3 ../ios/scripts/version.py)
+version_metadata=$(python3 ../ios/scripts/version.py --module server)
 version=$(printf '%s' "$version_metadata" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 channel=testing
 if test "$require_clean" = 1; then

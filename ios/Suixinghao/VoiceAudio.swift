@@ -19,6 +19,7 @@ final class VoiceAudio {
     var onInterrupted: (() -> Void)?
     var onSpeakerChanged: ((Bool) -> Void)?
     private(set) var muted = false
+    private var earlyMedia = false
     private var active = false
     var isActiveCall: Bool { active }
     var isEngineRunning: Bool { engine?.isRunning == true }
@@ -44,7 +45,7 @@ final class VoiceAudio {
         do { try graph.start() } catch { try? session.setActive(false, options: .notifyOthersOnDeactivation); throw error }
         output.play()
         engine = graph; player = output; playbackFormat = format
-        active = false; muted = false; outgoing.enable(false)
+        earlyMedia = false; active = false; muted = false; outgoing.enable(false)
         generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
     }
     #endif
@@ -107,7 +108,7 @@ final class VoiceAudio {
             tapInstalled = true
             engine = graph; player = output; playbackFormat = downlinkFormat
             self.callKitManaged = callKitManaged
-            active = false; muted = false; outgoing.enable(false)
+            earlyMedia = false; active = false; muted = false; outgoing.enable(false)
             generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
             observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
                 guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
@@ -188,6 +189,7 @@ final class VoiceAudio {
         waitingPlayer.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
         waitingPlayer.play()
     }
+    func setEarlyMedia(_ value: Bool) { earlyMedia = value }
     func setActiveCall(_ value: Bool) {
         if value { setWaitingTone(false) }
         active = value; outgoing.setState(active: value, muted: muted)
@@ -200,7 +202,7 @@ final class VoiceAudio {
         receivedFrames += 1
         outgoing.diagnostics.add("down_received_frames")
         peak = max(peak, samples.map { abs($0) }.max() ?? 0)
-        guard active else { outgoing.diagnostics.add("down_inactive_frames"); return }
+        guard active || earlyMedia else { outgoing.diagnostics.add("down_inactive_frames"); return }
         if scheduled >= 10 { outgoing.diagnostics.add("down_dropped_frames"); return }
         guard scheduled < 10,
               let format = playbackFormat, let player,
@@ -240,7 +242,7 @@ final class VoiceAudio {
         setWaitingTone(false); waitingPlayer?.stop(); waitingPlayer = nil
         let managedByCallKit = callKitManaged
         callKitManaged = false
-        outgoing.enable(false); active = false; muted = false
+        outgoing.enable(false); earlyMedia = false; active = false; muted = false
         routeRecovery = UUID()
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         generation = UUID(); scheduled = 0

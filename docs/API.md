@@ -149,3 +149,8 @@ GET响应含generated_at、retention_days=30、summaries、outages、events。su
 ## 官方推送中继适配
 
 业务接口及App Key保持不变。用户服务可私有配置中继HTTPS接口与独立后端凭据；不把发布者Apple私钥交给用户。候选中继契约、限流与隐私边界见 [push-relay.md](push-relay.md)。独立实例已完成HTTPS和授权检查，尚未完成Apple／真机验收，不视为线上功能已经可用。
+
+
+### 接通前音频
+
+服务端0.1.1对拥有音频会话的呼出拨号阶段建立模块声音链路，status的state仍为dialing、media可为true；media只表示链路建立，不代表对方已接听。音频帧格式不变，服务端接通前仅向模块写静音，接通后才允许麦克风帧；录音也从active后开始。App0.1.1在dialing且media=true时允许下行播放，取消合成本地等待音，不将早期音频标记为接听或已接通。是否有运营商提示、回铃或彩铃取决于模块和运营商；尚待真机验证。

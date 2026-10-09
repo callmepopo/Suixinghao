@@ -218,7 +218,7 @@ func (p *controller) tick() {
 		p.terminate("通话超时")
 		return
 	}
-	if p.view.State == "active" {
+	if p.view.State == "active" || (p.view.State == "dialing" && p.direction == "拨打") {
 		if p.run == "" {
 			resetFrames()
 			if moduleRoute("start") != nil {
@@ -228,7 +228,7 @@ func (p *controller) tick() {
 			}
 			p.run = recordingName(time.Now(), p.peer, p.direction)
 			p.view.Media = true
-			log.Printf("通话音频启动: 方向=%s 号码=%s", p.direction, maskNumber(p.peer))
+			log.Printf("通话音频启动: 阶段=%s 方向=%s", p.view.State, p.direction)
 			p.changed()
 		}
 		if mediaOn(p.run) != nil {

@@ -197,3 +197,67 @@ func TestDTMFInActiveCall(t *testing.T) {
 		t.Fatalf("idle DTMF gave code %d, want 409", w.Code)
 	}
 }
+
+func TestOutgoingEarlyMediaSurvivesAnswerAndReleases(t *testing.T) {
+	p, cmd, state := fakeController(t)
+	p.owned, p.owner, p.audioOwner = true, "owner", "owner"
+	p.direction, p.started = "拨打", time.Now()
+	*state = "+CLCC: 1,0,2,0,0"
+	p.tick()
+	run := p.run
+	if !p.view.Media || run == "" || p.view.State != "dialing" {
+		t.Fatal("early downlink not started")
+	}
+	if uplinkAllowed(p.view, run, run) {
+		t.Fatal("microphone allowed before answer")
+	}
+	*state = "+CLCC: 1,0,3,0,0"
+	p.tick()
+	*state = "+CLCC: 1,0,0,0,0"
+	p.tick()
+	if p.run != run || strings.Count(strings.Join(*cmd, ","), "route:start") != 1 {
+		t.Fatal("answer restarted the module route")
+	}
+	if !uplinkAllowed(p.view, run, run) {
+		t.Fatal("answered call did not enable uplink")
+	}
+	*state = "OK"
+	p.tick()
+	if p.run != "" || p.view.Media || uplinkAllowed(p.view, run, run) {
+		t.Fatal("hangup leaked media")
+	}
+}
+
+func TestNoEarlyMediaForPassiveOrIncomingCall(t *testing.T) {
+	for _, direction := range []string{"", "接听"} {
+		p, cmd, state := fakeController(t)
+		p.owned, p.owner, p.audioOwner = true, "owner", "owner"
+		p.direction, p.started = direction, time.Now()
+		*state = "+CLCC: 1,0,2,0,0"
+		p.tick()
+		if p.view.Media || strings.Contains(strings.Join(*cmd, ","), "route:start") {
+			t.Fatal("non-outgoing call opened early route")
+		}
+	}
+}
+
+func TestUplinkGateRejectsStaleUnavailableAndPreAnswer(t *testing.T) {
+	v := phoneView{State: "active", Media: true, Available: true}
+	if !uplinkAllowed(v, "run", "run") {
+		t.Fatal("active gate failed")
+	}
+	for _, state := range []string{"idle", "dialing", "ringing", "busy", "unavailable"} {
+		v.State = state
+		if uplinkAllowed(v, "run", "run") {
+			t.Fatal("unexpected uplink: " + state)
+		}
+	}
+	v.State = "active"
+	if uplinkAllowed(v, "old", "new") {
+		t.Fatal("stale run accepted")
+	}
+	v.Available = false
+	if uplinkAllowed(v, "run", "run") {
+		t.Fatal("unavailable call accepted")
+	}
+}

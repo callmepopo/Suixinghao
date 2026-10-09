@@ -20,7 +20,7 @@
 
 测试构建的归档目录保存脚本生成的 `source.json`，另记测试项目和通过/待验结果。测试只能记录脱敏结论；真实短信、号码、Key、签名配置和 IPA 不进入仓库。新 App 身份需要先在 Apple 登记并配置本机签名；不能套用旧 App 的描述文件。
 
-手机测试通过后，在没有未提交修改时将 develop 合入 main，固定提交并制作候选标签。开始下一轮变更时先运行 `python3 ios/scripts/version.py --next`；唯一版本来源是根 Version.xcconfig，Apple 构建号随脚本递增。
+手机测试通过后，在没有未提交修改时将 develop 合入 main，固定提交并制作候选标签。App功能／修复更新使用 `python3 ios/scripts/version.py --module ios --next`；服务端使用 `--module server --next`，各自递增补丁版本。App同产品版本的新构建使用 `--module ios --build-only`，只递增内部构建号。App的权威配置为根Version.xcconfig，服务为server/Version.xcconfig；纯文档不升号。
 
 ## 来源证据
 
@@ -48,4 +48,4 @@ GitHub Release 公开标签、完整提交、版本、构建号、环境、脱�
 
 App Store 的设备适配与处理会改变分发包，不能把用户下载包与上传 IPA 的整体哈希不同直接判为源码不同，也不能仅凭哈希、版本号、商店签名或源码链接证明所有代码一致。[Apple 设备适配说明](https://developer.apple.com/documentation/xcode/reducing-your-app-s-size)。公开流程提供可追溯证据，避免宣称已完成商店下载包的独立等价验证。
 
-版本分配现使用北京时间日期＋两位当日序号（01～99），例如 `2026100910`；历史九位版本保持原值。源码预览可在用户明确授权下公开已冻结的develop提交并标记prerelease；不得据此声称main、真机、TestFlight或商店验收通过。正式发布仍按上文验收门槛执行。
+从接通前音频更新起，App与服务分别采用三段产品版本，各组件自行递增；历史日期编号及原产物记录保持原值。源码预览可在用户明确授权下公开已冻结的develop提交并标记prerelease；不得据此声称main、真机、TestFlight或商店验收通过。正式发布仍按上文验收门槛执行。

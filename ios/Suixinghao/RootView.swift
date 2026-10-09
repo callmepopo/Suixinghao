@@ -541,7 +541,7 @@ struct SettingsView: View {
                 }
                 .font(.footnote)
                 Section("关于随行号") {
-                    LabeledContent("当前版本", value: AppVersion.current)
+                    LabeledContent("App版本", value: AppVersion.current)
                     LabeledContent("构建号", value: AppVersion.build)
                     LabeledContent("构建渠道", value: AppVersion.channel)
                     LabeledContent("源码提交", value: AppSource.current.commit ?? "未关联")

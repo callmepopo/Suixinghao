@@ -79,7 +79,7 @@ def validate_metadata(record):
     version = record.get("version", {})
     if not isinstance(version, dict):
         raise ValueError("Invalid recorded version")
-    if not re.fullmatch(r"\d{8}(?:[1-9]|0[1-9]|[1-9]\d)", str(version.get("version", ""))) or type(version.get("build")) is not int or version["build"] <= 0:
+    if not VERSION.valid_version(str(version.get("version", ""))) or type(version.get("build")) is not int or version["build"] <= 0:
         raise ValueError("Invalid recorded release version or build")
     if not isinstance(version.get("marketing"), str) or not isinstance(record.get("environment"), dict):
         raise ValueError("Missing build-time version or environment")
@@ -90,7 +90,7 @@ def validate_metadata(record):
 
 
 def capture(module, channel, source, version):
-    if source != SOURCE.metadata() or version != VERSION.read():
+    if source != SOURCE.metadata() or version != VERSION.read(module):
         raise ValueError("Source/version changed before the build started")
     environment = {"go": command("go", "version")} if module == "server" else {
         "xcode": command("xcodebuild", "-version"),
@@ -122,7 +122,7 @@ def finish(inputs, artifacts, record_dir):
     validate_metadata(inputs)
     if inputs["record_type"] != "build-input":
         raise ValueError("Expected the build-start snapshot")
-    if inputs["source"] != SOURCE.metadata() or inputs["version"] != VERSION.read() or inputs["source_tree_sha256"] != source_tree_digest():
+    if inputs["source"] != SOURCE.metadata() or inputs["version"] != VERSION.read(inputs["module"]) or inputs["source_tree_sha256"] != source_tree_digest():
         raise ValueError("Source/version changed during the build; rebuild before recording artifacts")
     entries = [artifact_identity(path, record_dir) for path in artifacts]
     if len({entry["path"] for entry in entries}) != len(entries):

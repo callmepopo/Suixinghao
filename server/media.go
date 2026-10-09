@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,7 +34,48 @@ func firstLine(s string) string {
 	return s
 }
 
+// Recheck on delivery: queued frames must not survive the active -> idle boundary.
+func uplinkAllowed(view phoneView, run, current string) bool {
+	return run != "" && run == current && view.Available && view.Media && view.State == "active"
+}
+
 func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run string, rec *pair, stats *audioStats) error {
+	var recordingMu sync.Mutex
+	recordingAttempted := rec != nil
+	ownsRecording := false
+	writeRecording := func(upstream bool, b []byte) {
+		recordingMu.Lock()
+		defer recordingMu.Unlock()
+		// Never record pre-answer media. Capture starts on the first active frame.
+		if !uplinkAllowed(phone.snapshot(), run, activeRun()) {
+			return
+		}
+		if !recordingAttempted {
+			recordingAttempted = true
+			if recordingEnabled() {
+				info := currentCallInfo()
+				if info.Run != run {
+					return
+				}
+				var err error
+				rec, err = newPair(recordRoot, info)
+				ownsRecording = rec != nil
+				if err != nil {
+					log.Print("录音未启动：文件创建失败")
+				}
+			}
+		}
+		if upstream {
+			rec.writeUp(b)
+		} else {
+			rec.writeDown(b)
+		}
+	}
+	defer func() {
+		if ownsRecording {
+			rec.close()
+		}
+	}()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	cap := exec.CommandContext(ctx, "arecord", "-q", "-D", envOrDefault("VOICE_WEB_AUDIO_DEVICE", "hw:CARD=Baiwang,DEV=0"), "-t", "raw", "-f", "S16_LE", "-r", "8000", "-c", "1")
@@ -78,7 +120,7 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 				return
 			}
 			total += len(b)
-			rec.writeDown(b)
+			writeRecording(false, b)
 			noteDown()
 			stats.output(false)
 
@@ -99,7 +141,10 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 				return
 			case b := <-mic:
 
-				rec.writeUp(b)
+				if !uplinkAllowed(phone.snapshot(), run, activeRun()) {
+					b = make([]byte, 320)
+				}
+				writeRecording(true, b)
 				if _, e := in.Write(b); e != nil {
 					log.Printf("上行结束: aplay 写入 %d 字节后退出: %v", total, e)
 					return
