@@ -148,4 +148,4 @@ GET响应含generated_at、retention_days=30、summaries、outages、events。su
 
 ## 官方推送中继适配
 
-业务接口及App Key保持不变。用户服务可私有配置中继HTTPS接口与独立后端凭据；不把发布者Apple私钥交给用户。候选中继契约、限流与隐私边界见 [push-relay.md](push-relay.md)。尚未部署或完成Apple／真机验收，不视为线上功能已经可用。
+业务接口及App Key保持不变。用户服务可私有配置中继HTTPS接口与独立后端凭据；不把发布者Apple私钥交给用户。候选中继契约、限流与隐私边界见 [push-relay.md](push-relay.md)。独立实例已完成HTTPS和授权检查，尚未完成Apple／真机验收，不视为线上功能已经可用。
