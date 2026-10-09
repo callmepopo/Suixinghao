@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>hideck</Name>
+  <Repository>yibaiba/hideck:2.1.23</Repository>
+  <Registry>https://hub.docker.com/r/yibaiba/hideck</Registry>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>true</Privileged>
+  <Support>https://github.com/yibaiba/hideck</Support>
+  <Project>https://github.com/yibaiba/hideck</Project>
+  <Overview>HiDeck 2.1.23 is an external dependency for SMS and the AT command queue. The Suixinghao host service provides the phone API and test web UI separately. Host networking, privileged mode and /dev passthrough require an isolated trusted host. PolyForm Noncommercial 1.0.0 applies to HiDeck.</Overview>
+  <Category>Network:Other Tools:</Category>
+  <WebUI>http://[IP]:[PORT:7577]/</WebUI>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/yibaiba/hideck/main/web/public/favicon.svg</Icon>
+  <ExtraParams>--init --restart=unless-stopped --log-opt max-size=10m --log-opt max-file=3 --health-cmd=&quot;wget -q -T 3 -O /dev/null http://127.0.0.1:7577/ping || exit 1&quot; --health-interval=30s --health-timeout=5s --health-start-period=20s --health-retries=3</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="网页端口" Target="7577" Default="7577" Mode="tcp" Description="host 网络下导出为 TCP_PORT_7577，仅说明用途，不改变 host 网络行为。" Type="Port" Display="always" Required="false" Mask="false">7577</Config>
+  <Config Name="配置目录" Target="/app/config" Default="" Mode="rw" Description="config.yaml 所在目录，不要改成别的位置。" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/hideck/config</Config>
+  <Config Name="数据目录" Target="/app/data" Default="" Mode="rw" Description="hideck.db 等运行数据。" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/hideck/data</Config>
+  <Config Name="日志目录" Target="/app/logs" Default="" Mode="rw" Description="应用日志。" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/hideck/logs</Config>
+  <Config Name="设备目录" Target="/dev" Default="" Mode="rw" Description="透传 /dev，容器内才能访问模块的 /dev/ttyUSB0-3。" Type="Path" Display="always" Required="true" Mask="false">/dev</Config>
+  <Config Name="时区" Target="TZ" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">Asia/Shanghai</Config>
+  <Config Name="配置路径" Target="CONFIG_PATH" Default="" Mode="" Description="config.yaml 位置，与“配置目录”保持一致。" Type="Variable" Display="always" Required="true" Mask="false">/app/config/config.yaml</Config>
+</Container>

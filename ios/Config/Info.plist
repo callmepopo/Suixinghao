@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>SXHReleaseVersion</key><string>$(SXH_RELEASE_VERSION)</string>
+    <key>SXHSourceCommit</key><string>$(SXH_SOURCE_COMMIT)</string>
+    <key>SXHSourceURL</key><string>$(SXH_SOURCE_URL)</string>
+    <key>SXHBuildChannel</key><string>$(SXH_BUILD_CHANNEL)</string>
+    <key>UIBackgroundModes</key><array><string>audio</string><string>voip</string></array>
+    <key>CFBundleURLTypes</key><array><dict>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>CFBundleURLName</key><string>com.junpo.suixinghao.calling</string>
+        <key>CFBundleURLSchemes</key><array><string>tel</string></array>
+    </dict></array>
+    <key>NSUserActivityTypes</key><array><string>INStartCallIntent</string><string>INStartAudioCallIntent</string><string>INStartVideoCallIntent</string></array>
+</dict></plist>

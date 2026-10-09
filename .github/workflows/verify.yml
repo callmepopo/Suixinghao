@@ -1,0 +1,39 @@
+name: Verify public source
+'on':
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Check public content
+        run: python3 scripts/privacy-check.py --staged
+      - name: Go checks
+        working-directory: server
+        run: |
+          go test -race ./...
+          go vet ./...
+      - name: Cross-build server
+        run: bash server/build.sh --require-clean
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Swift contract checks
+        run: zsh ios/scripts/check.sh
+      - name: Simulator build without Apple credentials
+        run: zsh ios/scripts/build.sh

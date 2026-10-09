@@ -1,0 +1,29 @@
+# Install as part of your existing nginx http{} configuration.
+# This example assumes nginx runs on the same host as voice-web.
+map $http_upgrade $sxh_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+server {
+    listen 443 ssl;
+    server_name voice.example.org;
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    location = / { return 302 /voice-test/; }
+    location = /voice-test { return 303 /voice-test/; }
+    location /voice-test/ {
+        proxy_pass http://127.0.0.1:7581;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $sxh_connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+        proxy_cache off;
+        # Avoid access logs containing SMS peers/card selectors in query strings.
+        access_log off;
+    }
+}

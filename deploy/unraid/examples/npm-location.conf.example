@@ -1,0 +1,11 @@
+# NPM Custom Location /voice-test/ advanced directives ONLY.
+# In the UI configure HTTP -> your Unraid host:7581, enable Websockets.
+# Preserve /voice-test/ in the upstream request; do not rewrite to /.
+# NPM generates Host / X-Forwarded-Proto itself. Do not duplicate these headers.
+# On a non-default public port, configure the full HTTPS Origin in service.env.
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+proxy_buffering off;
+proxy_cache off;
+access_log off;
+# NPM handles proxy_pass and websocket headers via its generated configuration.

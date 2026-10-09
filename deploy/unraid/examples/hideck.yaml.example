@@ -1,0 +1,14 @@
+# HiDeck 2.1.23 configuration shape; generate a private random password first.
+server:
+  debug: false
+  port: 7577
+  https_enabled: false
+  https_port: 7576
+  webrtc_udp_address: ":7580"
+  webrtc_public_host: ""
+web:
+  username: admin
+  password: REPLACE_WITH_A_PRIVATE_RANDOM_PASSWORD
+devices: []
+vowifi:
+  enabled: false

@@ -1,0 +1,279 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>随行号网页电话</title><style>
+:root{--bg:#0b1420;--card:#152233;--line:#24344a;--fg:#eaf1fa;--dim:#8ba0b8;--accent:#2864ee;--ok:#28b463;--warn:#e8a33d;--bad:#e05555}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif}
+main{max-width:460px;margin:0 auto;padding:16px}
+h1{font-size:19px;margin:4px 0 12px;font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+.st{display:flex;align-items:center;gap:8px;font-size:15px}.dot{width:10px;height:10px;border-radius:50%;background:var(--dim);flex:none}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+#peer{font-size:26px;font-weight:600;margin:10px 0 2px;word-break:break-all;min-height:34px}
+#timer{font-variant-numeric:tabular-nums;color:var(--dim);font-size:15px}
+#msg{color:var(--warn);font-size:14px;margin-top:8px;min-height:20px}
+input{width:100%;font:600 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#0e1a29;color:var(--fg);letter-spacing:1px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
+.pad button{font-size:22px;font-weight:600;padding:14px 0;border-radius:14px;background:#1d2d42;color:var(--fg);border:1px solid var(--line);cursor:pointer}
+.pad button:active{background:#26394f}
+.pad small{display:block;font-size:10px;color:var(--dim);letter-spacing:2px;height:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+button.act{flex:1;min-width:120px;font:600 17px/1 inherit;padding:15px 12px;border:0;border-radius:14px;background:var(--accent);color:#fff;cursor:pointer}
+button.act:disabled{opacity:.35;cursor:default}
+button.g{background:var(--ok)}button.r{background:var(--bad)}button.n{background:#33455e}
+button.act:active{filter:brightness(.92)}
+label{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--dim);margin-top:12px}
+#log{font:12px/1.6 ui-monospace,Menlo,monospace;color:var(--dim);max-height:132px;overflow:auto;white-space:pre-wrap;margin:0}
+a{color:#7fb0ff}small{display:block;color:var(--dim);font-size:12px;margin-top:10px;line-height:1.7}
+</style></head><body><main>
+<h1>随行号网页电话（诊断入口）</h1>
+<p><a href="app-access/">App 接入与 Key 管理</a></p>
+<div class="card">
+ <div class="st"><span class="dot" id="alink"></span><span id="astate">声音未连接</span></div>
+ <div class="st" style="margin-top:6px"><span class="dot" id="dlink"></span><span id="dstate">通话状态读取中</span></div>
+ <div id="peer"></div><div id="timer"></div><div id="frames" style="color:#8ba0b8;font-size:13px;margin-top:4px"></div><div id="diag" style="color:#8ba0b8;font-size:12px;margin-top:2px"></div><div id="msg"></div>
+ <div class="row" style="margin-top:14px">
+  <button class="act" id="audio">连接声音</button>
+  <button class="act n" id="mute" disabled>静音</button>
+ </div>
+ <label><input type="checkbox" id="keytone" checked style="width:auto">按键音</label>
+ <label><input type="checkbox" id="recording" style="width:auto">通话录音（接通后自动录制并保存到 Unraid）</label>
+</div>
+<div class="card">
+ <input id="number" inputmode="tel" autocomplete="off" placeholder="+8613800000000 或 11 位手机号">
+ <div class="pad" id="pad"></div>
+ <div class="row">
+  <button class="act g" id="dial" disabled>拨号</button>
+  <button class="act g" id="answer" disabled>接听</button>
+  <button class="act r" id="reject" disabled>拒接</button>
+  <button class="act r" id="hangup" disabled>挂断</button>
+  <button class="act n" id="del">退格</button>
+ </div>
+</div>
+<div class="card"><pre id="log"></pre></div>
+<small>请先在同一浏览器登录 <a href="/" target="_blank">HiDeck</a>，再回到本页点“连接声音”。拨号与接听都要求声音已连接；挂断可在声音断开后重试。号码按完整国际格式发送，11 位国内手机号自动补 +86。通话接通后点击数字键盘可发送通话按键（DTMF）；默认不自动接听；<b>通话录音以加载后的开关状态为准</b>，可在上方控制（保存到 Unraid，命名 日期-对手-拨打/接听，每通三份：拨打、接听、合并）。请自行确认对方知情并注意本地留存与清理。</small>
+</main><script>
+const $=i=>document.getElementById(i),logEl=$('log');
+let ctx=null,mic=null,node=null,source=null,timer=null,watchdog=null,ws=null,streamToken='',authFailed=false,needLogin=false,micDenied=false,connecting=false;
+let view={state:'idle',available:false},cur=null,run='',answering=false,dialing=false,hanging=false,startedAt=0,tickTimer=null;
+$('number').value=localStorage.getItem('voice_last_number')||'';
+$('number').oninput=()=>{localStorage.setItem('voice_last_number',$('number').value.trim())};
+function log(t){const d=new Date().toLocaleTimeString('zh-CN',{hour12:false});logEl.textContent+=d+' '+t+'\n';logEl.scrollTop=logEl.scrollHeight}
+function msg(t){$('msg').textContent=t||''}
+function diag(t){$('diag').textContent=t||''}
+let lastUp=-1,lastWf=0,stall=0,resumes=0,workletDiag=null,sentFrames=0;
+function inCall(){return view.state==='active'||view.media===true}
+function audioWatchdog(){
+ // iOS 会在切后台/锁屏后把 AudioContext 置于 suspended，此时麦克风不产出、也听不到对方。
+ if(ctx&&ctx.state!=='running'){try{ctx.resume().then(()=>{resumes++;diag('音频已自动唤醒（第 '+resumes+' 次）｜采样率 '+(ctx.sampleRate||'?')+'｜麦克风 '+(mic&&mic.getAudioTracks()[0]?mic.getAudioTracks()[0].readyState:'?'))}).catch(()=>{})}catch(e){}}
+ if(node&&ctx)try{node.port.postMessage({diag:true})}catch(e){}
+ if(ws&&ws.readyState===1&&ctx){
+  const up=view.frames_up||0,dn=view.frames_down||0;
+  // “麦克风是否有数据”只看工作线程实际发出的帧数；服务端计数仅在通话接通后才启动。
+  const wf=workletDiag?workletDiag.frames:0;
+  if(wf>lastWf)stall=0;else stall++;
+  if(stall===4)msg('麦克风没有产生音频：请点一下页面任意处，或断开后重新“连接声音”（iOS 需在页面前台才能采集）');
+  else if($('msg').textContent.indexOf('麦克风没有产生音频')===0)msg('');
+  const mode=workletDiag&&workletDiag.mode==='sp'?'兼容采集':(typeof AudioWorkletNode==='function'&&ctx.audioWorklet?'工作线程':'未知');
+  const w=workletDiag?('｜'+mode+' 收 '+workletDiag.inSamples+'/产出 '+workletDiag.emitted+'/共发 '+workletDiag.frames+' 帧'):'';
+  const up2=inCall()?('服务端收 '+up+' 帧（本机 '+(wf-lastWf)+'/1.5秒，socket 共发 '+sentFrames+'）'+(dn===0&&up>0?'｜对方音频未到达':'')):('本机上行 '+(wf-lastWf)+' 帧/1.5秒（尚未通话；socket 共发 '+sentFrames+' 帧）');
+  diag('采样率 '+(ctx.sampleRate||'?')+'｜上下文 '+ctx.state+'｜麦克风 '+(mic&&mic.getAudioTracks()[0]?mic.getAudioTracks()[0].readyState:'?')+'｜'+up2+w);
+  lastUp=up;lastWf=wf;
+ }
+}
+// 只有“已有会话但被拒”才算未授权；没有会话只是还没连接声音，不能锁死页面。
+function authLost(e){authFailed=true;if(ws){ws.onclose=null;try{ws.close()}catch(err){}ws=null}$('alink').className='dot bad';$('astate').textContent='会话失效';$('dlink').className='dot bad';$('dstate').textContent='会话失效';$('audio').disabled=false;if(e){log('会话失效：'+e);msg(e)}}
+function sessionMissing(){if(streamToken){authLost('会话已失效，请重新登录 HiDeck 后再点“连接声音”');return}needLogin=true;$('alink').className='dot warn';$('astate').textContent='尚未连接声音';$('dlink').className='dot warn';$('dstate').textContent='连接声音后读取通话状态';log('还没有本页会话：请先登录 HiDeck，再点“连接声音”');msg('尚未建立通话会话：请先在同一浏览器登录 HiDeck，再点“连接声音”')}
+async function api(path,opt){
+ let r;
+ try{
+  r=await fetch(path,Object.assign({cache:'no-store',credentials:'same-origin'},opt||{},streamToken?{headers:Object.assign({'Authorization':'Bearer '+streamToken},(opt&&opt.headers)||{})}:{}));
+ }catch(e){log('请求 '+path+' 失败：'+(e.message||e));throw e}
+ if(r.status>=400)log('请求 '+path+' → HTTP '+r.status);
+ return r
+}
+let lastDTMFTime=0;
+function digits(d){
+ tone(d);
+ if(cur&&cur.call_id){
+  const now=Date.now();
+  if(now-lastDTMFTime<200)return;
+  lastDTMFTime=now;
+  post({action:'dtmf',call_id:cur.call_id,digit:d},'按键 '+d);
+  return;
+ }
+ $('number').value+=d;
+ localStorage.setItem('voice_last_number',$('number').value.trim());
+}
+let ac=null;function tone(d){if(!$('keytone').checked)return;try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const f={1:697,2:770,3:852,4:697,5:770,6:852,7:697,8:770,9:852,'*':941,0:941,'#':941}[d]||700;const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.value=.05;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.08)}catch(e){}}
+const sub={2:'ABC',3:'DEF',4:'GHI',5:'JKL',6:'MNO',7:'PQRS',8:'TUV',9:'WXYZ',0:'+'};
+for(const k of ['1','2','3','4','5','6','7','8','9','*','0','#']){const b=document.createElement('button');b.innerHTML=k+'<small>'+(sub[k]||'')+'</small>';b.onclick=()=>digits(k);$('pad').appendChild(b)}
+$('del').onclick=()=>{$('number').value=$('number').value.slice(0,-1);localStorage.setItem('voice_last_number',$('number').value.trim())};
+async function stopAudio(gone){clearInterval(timer);timer=null;clearInterval(watchdog);watchdog=null;lastUp=-1;lastWf=0;stall=0;sentFrames=0;diag('');if(ws){ws.onclose=null;try{ws.close()}catch(e){}ws=null}try{source&&source.disconnect()}catch(e){}try{node&&node.disconnect()}catch(e){}mic&&mic.getTracks().forEach(t=>t.stop());mic=null;if(ctx){try{await ctx.close()}catch(e){}}ctx=null;node=null;source=null;run='';connecting=false;$('audio').textContent='连接声音';$('audio').disabled=false;$('mute').disabled=true;$('mute').textContent='静音';$('alink').className='dot';$('astate').textContent='声音未连接';if(gone)log('声音连接已结束，需要时重新点“连接声音”')}
+async function connectAudio(){
+ if(ctx||connecting){log('忽略重复的连接请求（'+(ctx?'已连接':'连接中')+'）');return false}
+ connecting=true;needLogin=false;authFailed=false;micDenied=false;const btn=$('audio');btn.textContent='连接中…';btn.disabled=false;
+ try{
+  if(!isSecureContext)throw Error('请使用 HTTPS 地址打开本页');
+  if(!streamToken){
+   const t=localStorage.getItem('token');
+   if(!t){needLogin=true;throw Error('请先在同一浏览器登录 HiDeck，登录后再回到本页点“连接声音”')}
+   const r=await api('session',{method:'POST',headers:{Authorization:'Bearer '+t}});
+   if(r.status===403)throw Error('来源校验未通过，请从当前服务的 HTTPS 入口打开本页');
+   if(r.status===401)throw Error('HiDeck 登录已失效，请重新登录后再试');
+   if(!r.ok)throw Error('声音授权失败（HTTP '+r.status+'）');
+   const j=await r.json().catch(()=>({}));streamToken=j.token||''
+  }
+  if(!streamToken)log('会话已建立但未取得 token（将依赖 Cookie）')
+  const AC=window.AudioContext||window.webkitAudioContext;
+  ctx=new AC({sampleRate:48000});           // 必须紧跟用户手势创建
+  try{await ctx.resume()}catch(e){}
+  try{
+   mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false})
+  }catch(me){
+   log('麦克风请求失败：'+((me&&me.name)||'')+' '+((me&&me.message)||''));
+   micDenied=true;throw Error('浏览器未授权麦克风：请再点一次并在弹窗里选择“允许”')
+  }
+  try{await ctx.resume()}catch(e){}
+  source=ctx.createMediaStreamSource(mic);
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/voice-test/stream');ws.binaryType='arraybuffer';
+  let useWorklet=false;
+  if(ctx.audioWorklet&&typeof AudioWorkletNode==='function'){
+   try{await ctx.audioWorklet.addModule('audio.js');useWorklet=true}
+   catch(e){log('AudioWorklet 不可用，改用兼容采集：'+(e&&e.message?e.message:e))}
+  }
+  if(useWorklet){
+   node=new AudioWorkletNode(ctx,'voice-pcm');
+   node.port.onmessage=e=>{const d=e.data;if(d&&d.diag){workletDiag=d.diag;return}if(ws&&ws.readyState===1&&ws.bufferedAmount<3200){ws.send(d);sentFrames++}};
+   ws.onmessage=e=>{if(e.data instanceof ArrayBuffer){if(node)node.port.postMessage(e.data,[e.data]);return}let m={};try{m=JSON.parse(e.data)}catch(err){}if(m.status)log(m.status);if(m.error){log('错误：'+m.error);msg(m.error)}};
+   source.connect(node);node.connect(ctx.destination);
+  }else{
+   // 回退：ScriptProcessor（已废弃，但 iOS 上更可靠）
+   node=ctx.createScriptProcessor(4096,1,1);
+   const q=[],buf=[],st={phase:0,sum:0,n:0,muted:false};
+   node.onaudioprocess=ev=>{
+    const inp=ev.inputBuffer.getChannelData(0),out=ev.outputBuffer.getChannelData(0);
+    const decim=Math.max(1,Math.round(ctx.sampleRate/8000));
+    for(let i=0;i<inp.length;i++){
+     st.sum+=st.muted?0:inp[i];st.n++;st.phase++;
+     if(st.phase>=decim){
+      st.phase-=decim;
+      buf.push(Math.round(Math.max(-1,Math.min(1,st.n?st.sum/st.n:0))*32767));
+      st.sum=0;st.n=0;
+      if(buf.length>=160){
+       const ab=new ArrayBuffer(320),dv=new DataView(ab);
+       for(let j=0;j<160;j++)dv.setInt16(j*2,buf[j],true);
+       buf.length=0;
+       workletDiag={inSamples:((workletDiag&&workletDiag.inSamples)||0)+inp.length,emitted:((workletDiag&&workletDiag.emitted)||0)+160,frames:((workletDiag&&workletDiag.frames)||0)+1,mode:'sp'};
+       if(ws&&ws.readyState===1&&ws.bufferedAmount<3200){ws.send(ab);sentFrames++}
+      }
+     }
+     if(q.length){out[i]=q.shift()}else out[i]=0;
+    }
+   };
+   node.port={postMessage:d=>{if(d&&d.mute!==undefined){st.muted=d.mute;return}if(d instanceof ArrayBuffer){const dv=new DataView(d);for(let i=0;i<dv.byteLength;i+=2)q.push(dv.getInt16(i,true)/32768);if(q.length>8000)q.splice(0,q.length-800)}}};
+   ws.onmessage=e=>{if(e.data instanceof ArrayBuffer){if(node)node.port.postMessage(e.data);return}let m={};try{m=JSON.parse(e.data)}catch(err){}if(m.status)log(m.status);if(m.error){log('错误：'+m.error);msg(m.error)}};
+   source.connect(node);node.connect(ctx.destination);
+  }
+  ws.onopen=()=>{connecting=false;btn.textContent='断开声音';try{diag('采样率 '+(ctx.sampleRate||'?')+'｜上下文 '+ctx.state+'｜麦克风 '+(mic&&mic.getAudioTracks()[0]?mic.getAudioTracks()[0].readyState:'?'))}catch(e){}btn.disabled=false;$('mute').disabled=false;$('alink').className='dot ok';$('astate').textContent='声音已连接';msg('接通后会自动录音');log('声音已连接，可以拨号或接听（接通后自动录音）');timer=setInterval(()=>{if(ws&&ws.readyState===1)ws.send('ping')},5000);clearInterval(watchdog);watchdog=setInterval(audioWatchdog,1500);refresh()};
+  ws.onclose=ev=>{const t=inCall()?'通话中':'未通话';log('声音通道关闭：code='+(ev?ev.code:'?')+(ev&&ev.reason?(' 原因='+ev.reason):'')+'（'+t+'，本机共发 '+(workletDiag?workletDiag.frames:0)+' 帧）');if(ev&&ev.code&&ev.code!==1000)msg('声音通道被关闭（code '+ev.code+'）：请重新点“连接声音”');stopAudio(true)};
+  ws.onerror=()=>{const st=['正在连接','已连接','正在关闭','已关闭'][ws.readyState]||('状态'+ws.readyState);log('声音通道出错（readyState='+st+'）');msg('声音通道出错（'+st+'）：请重新点“连接声音”；若反复失败请把操作日志发我')};
+  return true
+ }catch(e){
+  let detail;
+  if(e&&e.message)detail=(e.name?e.name+': ':'')+e.message;
+  else {try{detail=JSON.stringify(e)}catch(_){detail=String(e)}}
+  if(e&&e.stack)log('失败位置：'+String(e.stack).split('\n')[1]);
+  await stopAudio(false);log('连接声音失败：'+detail);msg('连接声音失败：'+detail);return false
+ }
+}
+// 麦克风授权与 AudioContext 必须由用户点击触发，因此不在页面加载时自动连接，只做一次登录预检。
+async function preflight(){
+ if(!localStorage.getItem('token'))return;
+ try{
+  const r=await api('session',{method:'POST',headers:{Authorization:'Bearer '+localStorage.getItem('token')}});
+  if(r.status===401){needLogin=true;msg('HiDeck 登录已失效：请重新登录后再点“连接声音”');return}
+  if(r.status===403){msg('来源校验未通过，请从当前服务的 HTTPS 入口打开本页');return}
+  if(!r.ok){msg('会话预检失败（HTTP '+r.status+'），仍可点“连接声音”重试');return}
+  const j=await r.json().catch(()=>({}));streamToken=j.token||''
+ }catch(e){}
+}
+$('audio').onclick=async()=>{
+ if(ctx){await stopAudio(true);msg('已断开声音');return}
+ needLogin=false;
+ await connectAudio();
+};
+$('recording').onchange=async()=>{
+ const want=$('recording').checked;
+ try{
+  const r=await api('recording',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:want})});
+  if(r.status===401){needLogin=true;$('recording').checked=!want;msg('请先登录 HiDeck 再点“连接声音”，然后修改录音开关');return}
+  if(!r.ok){$('recording').checked=!want;msg('录音开关保存失败（HTTP '+r.status+'）');return}
+  const j=await r.json().catch(()=>({}));
+  if(typeof j.enabled==='boolean')$('recording').checked=j.enabled;
+  msg(j.enabled?'通话录音已开启：接通后自动录音':'通话录音已关闭：本次不保存录音');log('通话录音开关：'+(j.enabled?'开启':'关闭'));
+ }catch(e){$('recording').checked=!want;msg('录音开关修改失败：'+(e.message||e))}
+};
+$('mute').onclick=()=>{if(!node)return;const m=$('mute').textContent==='静音';node.port.postMessage({mute:m});$('mute').textContent=m?'取消静音':'静音'};
+function needAudio(){if(!ctx){$('msg').textContent='请先点“连接声音”再拨号或接听';return false}$('msg').textContent='';return true}
+async function post(body,label){try{const r=await api('phone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){let t='HTTP '+r.status;try{t=(await r.text()).trim()||t}catch(e){}log((label||'操作')+'失败：'+t);$('msg').textContent=t;return null}const v=await r.json();apply(v);log((label||'操作')+'已提交');return v}catch(e){log((label||'操作')+'异常：'+(e.message||e));return null}}
+$('dial').onclick=()=>{if(!needAudio()||dialing)return;const n=$('number').value.trim();if(!/^[+0-9*#]{3,20}$/.test(n)){$('msg').textContent='请输入有效号码';return}dialing=true;setTimeout(()=>dialing=false,1500);post({action:'dial',number:n},'拨号')};
+$('answer').onclick=()=>{if(!needAudio()||!cur||answering)return;answering=true;setTimeout(()=>answering=false,1500);post({action:'answer',call_id:cur.call_id},'接听')};
+$('reject').onclick=()=>{if(!cur)return;post({action:'hangup',call_id:cur.call_id},'拒接')};
+$('hangup').onclick=()=>{if(!cur||hanging)return;const c=cur;hanging=true;setTimeout(()=>hanging=false,2000);post({action:'hangup',call_id:c.call_id},'挂断')};
+function label(){const s=view.state;if(s==='unavailable'||!view.available)return '通话状态不可用';if(s==='idle')return ctx?'空闲':'空闲（尚未连接声音）';if(s==='ringing')return '来电响铃';if(s==='dialing')return '正在呼出';if(s==='active')return '通话中';if(s==='busy')return '线路忙';return s}
+function dur(){startedAt=Date.now();clearInterval(tickTimer);tickTimer=setInterval(paintTimer,500);paintTimer()}
+function paintTimer(){if(!startedAt){$('timer').textContent='';return}const s=Math.floor((Date.now()-startedAt)/1000);$('timer').textContent='通话时长 '+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function apply(v){
+ if(!v||typeof v!=='object')return;
+ view=v;
+ log('状态 '+v.state+(v.available?'':'（不可用）')+(v.media?' 音频已接通':''));
+ const type=v.state==='ringing'?'warn':(v.state==='idle'?'ok':(v.state==='unavailable'?'bad':(v.state==='active'?'ok':'warn')));
+ $('dlink').className='dot '+type;$('dstate').textContent=label();
+ $('msg').textContent=v.message||'';
+ if(typeof v.recording==='boolean')$('recording').checked=v.recording;
+ $('frames').textContent=(v.media||(v.frames_up||v.frames_down))?('音频帧 上行 '+((v.frames_up||0))+' / 下行 '+((v.frames_down||0))):'';
+ const prev=cur&&cur.call_id,callID=v.call_id||'';
+ if(v.state==='idle'||!callID){cur=null;startedAt=0;clearInterval(tickTimer);tickTimer=null;$('peer').textContent='';paintTimer()}
+ else{
+  if(prev!==callID){startedAt=v.state==='active'?Date.now():0}
+  else if(!startedAt&&v.state==='active'){startedAt=Date.now()}
+  cur={call_id:callID,state:v.state};$('peer').textContent=v.caller||$('number').value.trim()||'未知号码';
+  if(v.state==='active'&&!tickTimer)dur();
+ }
+ const idle=v.state==='idle'||!callID;
+ $('dial').disabled=!idle;$('del').disabled=!idle;$('number').disabled=!idle;
+ $('answer').disabled=!(v.state==='ringing'&&callID);$('reject').disabled=!(v.state==='ringing'&&callID);
+ $('hangup').disabled=idle;
+ const title=cur?'【'+label()+'】':'随行号网页电话';if(document.title!==title)document.title=title;
+}
+async function refresh(){try{
+ const r=await api('status');
+ // 还没有会话时服务端会拒绝（页面同源请求不带 Origin，需先交换会话）；
+ // 这不是"登录失效"，不能吓唬用户，也不能锁死按钮。
+ if(r.status===401||r.status===403){
+  if(streamToken||localStorage.getItem('token')){sessionMissing();return}
+  needLogin=true;$('alink').className='dot warn';$('astate').textContent='尚未连接声音';
+  $('dlink').className='dot warn';$('dstate').textContent='点“连接声音”后读取通话状态';
+  msg('尚未建立通话会话：请先在同一浏览器登录 HiDeck，再点“连接声音”');return
+ }
+ if(r.ok){const v=await r.json().catch(()=>null);if(v)apply(v);if(!authFailed&&!needLogin&&!ctx&&!view.message)msg('点“连接声音”后即可拨号或接听来电')}
+}catch(e){log('状态读取失败：'+(e.message||e))}}
+function events(){if(authFailed||needLogin)return;const es=new EventSource('events');es.addEventListener('call',e=>{let v={};try{v=JSON.parse(e.data)}catch(err){}apply(v)});es.onerror=()=>log('事件流中断，浏览器会自动重连');addEventListener('pagehide',()=>{try{es.close()}catch(e){}})}
+let pollTimer=null;
+async function boot(){
+ log('页面已就绪：请先登录 HiDeck，再点“连接声音”');
+ await preflight();
+ await refresh();
+ events();
+ if(!pollTimer)pollTimer=setInterval(refresh,1500);
+}
+// iOS 会在切后台/锁屏后挂起音频；恢复可见时尽量唤醒并刷新状态。
+document.addEventListener('visibilitychange',()=>{
+ if(document.visibilityState==='visible'){
+  void refresh();
+  if(ctx&&ctx.state!=='running'){
+   ctx.resume().then(()=>log('音频已恢复')).catch(()=>log('音频恢复失败：请重新点“连接声音”'));
+  }
+ }
+});
+addEventListener('pagehide',()=>stopAudio(false));
+boot();
+</script></body></html>
