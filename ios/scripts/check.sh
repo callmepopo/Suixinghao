@@ -19,4 +19,9 @@ xcrun swiftc -D DEBUG -module-cache-path .build/checks/module-cache Suixinghao/A
 .build/checks/sms-settings-check
 xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/DialerInput.swift scripts/dialer-input-check.swift -o .build/checks/dialer-input-check
 .build/checks/dialer-input-check
+xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/IncomingReminderState.swift scripts/reminder-check.swift -o .build/checks/reminder-check
+.build/checks/reminder-check
+xcrun swiftc -parse-as-library -module-cache-path .build/checks/module-cache Suixinghao/IncomingReminderState.swift Suixinghao/IncomingCallReminder.swift scripts/reminder-race-check.swift -o .build/checks/reminder-race-check
+.build/checks/reminder-race-check
 python3 scripts/version.py
+python3 scripts/speaker-switch-check.py

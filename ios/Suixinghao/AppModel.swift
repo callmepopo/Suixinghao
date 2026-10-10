@@ -791,6 +791,12 @@ final class AppModel {
         guard status?.call_id == callID, let caller = status?.caller, !caller.isEmpty else { return nil }
         return (caller, await PhoneContacts.name(matching: caller))
     }
+    func incomingReminderIsRinging(_ callID: String) async -> Bool? {
+        guard connected else { return nil }
+        do { try await readStatus() } catch { return nil }
+        guard let status, status.available else { return nil }
+        return status.call_id == callID && status.state == "ringing"
+    }
     private func startPolling() {
         guard isForeground || canRunCallInBackground, connected else { return }
         pollTask?.cancel()
@@ -1179,17 +1185,13 @@ final class AppModel {
         guard !callBusy, mediaConnected, let callID = ownedCallID else { return }
         callBusy = true; defer { callBusy = false }
         let target = !speakerEnabled
-        let callKitManaged = audio.callKitManaged
-        audio.stop(deactivateSession: false)
         do {
-            try await audio.start(useSpeaker: target, callKitManaged: callKitManaged)
-            guard mediaConnected, ownedCallID == callID, status?.state == "active" else {
-                audio.stop(); return
-            }
-            audio.setActiveCall(status?.state == "active")
-            audio.setMuted(muted)
+            // Route the existing engine. Dialing/early media must keep running,
+            // and changing output must not reset capture, mute or WS ownership.
+            guard ownedCallID == callID else { return }
+            try audio.setSpeaker(target)
         } catch {
-            await endCall(reason: "声音输出切换失败，已结束通话，请重试。")
+            notice = "声音输出切换失败，请重试。"
         }
     }
     private func releaseMedia() {
