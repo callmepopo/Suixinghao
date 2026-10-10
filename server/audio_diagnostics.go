@@ -21,6 +21,29 @@ type audioStats struct {
 	client                                                 map[string]any
 	startupDiscarded                                       uint64
 	firstUnderrun, lastUnderrun, firstOverrun, lastOverrun time.Time
+	socketFrames, recordedFrames                           uint64
+	trace                                                  string
+	events                                                 []audioEvent
+	eventsOmitted                                          uint64
+	writeMaxUS                                             uint64
+	queueDepth                                             uint64
+}
+
+type audioEvent struct {
+	Kind      string `json:"kind"`
+	ElapsedMS uint64 `json:"elapsed_ms"`
+	Frame     uint64 `json:"frame"`
+	Value     uint64 `json:"value"`
+	At        string `json:"at,omitempty"`
+}
+
+func (s *audioStats) receivedFrame() { s.Lock(); s.socketFrames++; s.Unlock() }
+func (s *audioStats) eventLocked(kind string, value uint64, now time.Time) {
+	if len(s.events) >= 32 {
+		s.eventsOmitted++
+		return
+	}
+	s.events = append(s.events, audioEvent{Kind: kind, ElapsedMS: uint64(max(int64(0), now.Sub(s.started).Milliseconds())), Frame: s.socketFrames, Value: value, At: now.UTC().Format(time.RFC3339Nano)})
 }
 
 func (s *audioStats) begin(run string) {
@@ -48,12 +71,22 @@ func (s *audioStats) begin(run string) {
 	s.lastUnderrun = time.Time{}
 	s.firstOverrun = time.Time{}
 	s.lastOverrun = time.Time{}
+	if s.trace == "" {
+		s.trace = randomHistoryID()
+	}
+	s.recordedFrames = 0
+	s.writeMaxUS = 0
+	s.queueDepth = 0
+	s.events = nil
+	s.eventsOmitted = 0
 }
 func (s *audioStats) arrival(run string, dropped bool, depth int) {
 	if run == "" {
 		return
 	}
-	now := time.Now()
+	s.arrivalAt(run, dropped, depth, time.Now())
+}
+func (s *audioStats) arrivalAt(run string, dropped bool, depth int, now time.Time) {
 	s.Lock()
 	defer s.Unlock()
 	if s.run != run {
@@ -64,13 +97,34 @@ func (s *audioStats) arrival(run string, dropped bool, depth int) {
 		if n := uint64(now.Sub(s.lastUp).Microseconds()); n > s.intervalMaxUS {
 			s.intervalMaxUS = n
 		}
+		if gap := now.Sub(s.lastUp).Microseconds(); gap >= 60000 {
+			s.eventLocked("receive_gap", uint64(gap), now)
+		}
 	}
 	s.lastUp = now
+	s.queueDepth = uint64(depth)
 	if dropped {
 		s.dropped++
+		s.eventLocked("receive_drop", uint64(depth), now)
 	}
 	if uint64(depth) > s.queuePeak {
 		s.queuePeak = uint64(depth)
+	}
+}
+
+// Called after writing to the existing module pipe; it never changes PCM or pacing.
+func (s *audioStats) moduleWrite(active bool, duration time.Duration) {
+	s.Lock()
+	defer s.Unlock()
+	if active {
+		s.recordedFrames++
+	}
+	us := uint64(max(int64(0), duration.Microseconds()))
+	if us > s.writeMaxUS {
+		s.writeMaxUS = us
+	}
+	if us >= 40000 {
+		s.eventLocked("module_write_slow", us, time.Now())
 	}
 }
 func (s *audioStats) discardStartup() { s.Lock(); s.startupDiscarded++; s.Unlock() }
@@ -93,6 +147,14 @@ func (s *audioStats) summary(final bool) {
 		"down_read": s.down, "up_dropped": s.dropped, "queue_peak_frames": s.queuePeak, "up_interval_max_us": s.intervalMaxUS,
 		"underruns": s.underruns, "overruns": s.overruns, "stderr_lines": s.stderrLines, "final": final}
 	v["up_startup_discarded"] = s.startupDiscarded
+	v["trace"] = s.trace
+	v["socket_received_frames"] = s.socketFrames
+	v["recorded_up_ms"] = s.recordedFrames * 20
+	v["module_write_max_us"] = s.writeMaxUS
+	v["receive_queue_ms"] = s.queueDepth * 20
+	v["events"] = append([]audioEvent(nil), s.events...)
+	v["events_omitted"] = s.eventsOmitted
+	s.events = nil
 	for name, at := range map[string]time.Time{"underrun_first_at": s.firstUnderrun, "underrun_last_at": s.lastUnderrun, "overrun_first_at": s.firstOverrun, "overrun_last_at": s.lastOverrun} {
 		if !at.IsZero() {
 			v[name] = at.UTC().Format(time.RFC3339Nano)
@@ -115,11 +177,12 @@ var audioCounterNames = map[string]bool{
 	"missed_slots": true, "captured_samples": true, "capture_queue_peak_samples": true, "capture_dropped_samples": true,
 	"waiting_silence_frames": true, "muted_silence_frames": true, "capture_underfill_frames": true,
 	"down_received_frames": true, "down_inactive_frames": true, "down_dropped_frames": true, "down_played_frames": true, "playback_queue_peak_frames": true,
+	"events_omitted": true,
 }
 
 // Optional text metadata is whitelisted. Invalid metadata never tears down audio.
 func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
-	if len(b) > 2048 {
+	if len(b) > 8192 {
 		return false
 	}
 	var raw map[string]json.RawMessage
@@ -128,13 +191,47 @@ func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
 	}
 	var kind, segment string
 	var version, elapsed uint64
-	if json.Unmarshal(raw["type"], &kind) != nil || kind != "audio_stats" || json.Unmarshal(raw["version"], &version) != nil || version != 1 ||
+	if json.Unmarshal(raw["type"], &kind) != nil || kind != "audio_stats" || json.Unmarshal(raw["version"], &version) != nil ||
 		json.Unmarshal(raw["segment"], &segment) != nil || !audioSegment.MatchString(segment) || json.Unmarshal(raw["elapsed_ms"], &elapsed) != nil || elapsed > 86400000 {
+		return false
+	}
+	if version != 1 && version != 2 || version == 1 && len(b) > 2048 {
 		return false
 	}
 	value := map[string]any{"type": kind, "version": version, "segment": segment, "elapsed_ms": elapsed}
 	for name, encoded := range raw {
 		if name == "type" || name == "version" || name == "segment" || name == "elapsed_ms" {
+			continue
+		}
+		if version == 2 && name == "events" {
+			var events []audioEvent
+			dec := json.NewDecoder(bytes.NewReader(encoded))
+			dec.DisallowUnknownFields()
+			if dec.Decode(&events) != nil || len(events) > 16 {
+				return false
+			}
+			for _, e := range events {
+				if !map[string]bool{"send_gap": true, "send_slow": true, "capture_drop": true, "capture_underfill": true}[e.Kind] || e.At != "" || e.ElapsedMS > elapsed || e.Frame > 1000000000000 || e.Value > 1000000000000 {
+					return false
+				}
+			}
+			value[name] = events
+			continue
+		}
+		if version == 2 && name == "level" {
+			var level map[string]uint64
+			if json.Unmarshal(encoded, &level) != nil || len(level) != 5 {
+				return false
+			}
+			for _, k := range []string{"samples", "rms", "peak", "quiet_samples", "clipped_samples"} {
+				if _, ok := level[k]; !ok {
+					return false
+				}
+			}
+			if level["samples"] > 1000000000000 || level["rms"] > 32768 || level["peak"] > 32768 || level["quiet_samples"] > level["samples"] || level["clipped_samples"] > level["samples"] {
+				return false
+			}
+			value[name] = level
 			continue
 		}
 		if !audioCounterNames[name] {
@@ -153,6 +250,11 @@ func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
 	}
 	s.lastClient = now
 	s.client = value
+	if version == 2 && !s.started.IsZero() {
+		anchor := map[string]any{"trace": s.trace, "segment": s.segment, "server_at": now.UTC().Format(time.RFC3339Nano), "server_elapsed_ms": max(int64(0), now.Sub(s.started).Milliseconds()), "socket_received_frames": s.socketFrames, "up_written": s.written, "recorded_up_ms": s.recordedFrames * 20, "phone": value}
+		data, _ := json.Marshal(anchor)
+		log.Printf("音频关联 %s", data)
+	}
 	return true
 }
 
@@ -202,6 +304,7 @@ func (w *audioStderr) line(line string) {
 			w.stats.firstUnderrun = now
 		}
 		w.stats.lastUnderrun = now
+		w.stats.eventLocked("module_underrun", 1, now)
 		kind = "underrun"
 	}
 	if strings.Contains(line, "overrun") {
@@ -211,6 +314,7 @@ func (w *audioStderr) line(line string) {
 			w.stats.firstOverrun = now
 		}
 		w.stats.lastOverrun = now
+		w.stats.eventLocked("module_overrun", 1, now)
 		kind = "overrun"
 	}
 	segment := w.stats.segment

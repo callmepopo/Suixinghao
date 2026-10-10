@@ -21,17 +21,28 @@ struct VoicePacer {
 final class VoiceDiagnostics: @unchecked Sendable {
     private let lock = NSLock()
     private var supported = false
+    private var wireVersion = 1
     private var id = UUID().uuidString
     private var started: UInt64 = 0
     private var reported: UInt64 = 0
     private var previousSend: UInt64?
     private var counts: [String: UInt64] = [:]
+    private var events: [[String: Any]] = []
+    private var levelSamples: UInt64 = 0
+    private var levelSquares: UInt64 = 0
+    private var levelPeak: UInt64 = 0
+    private var levelQuiet: UInt64 = 0
+    private var levelClipped: UInt64 = 0
     private static let logger = Logger(subsystem: "com.junpo.suixinghao", category: "audio")
-    func negotiate(_ enabled: Bool) { lock.lock(); supported = enabled; lock.unlock() }
+    func negotiate(_ enabled: Bool, version: Int = 1) {
+        lock.lock(); supported = enabled; wireVersion = version == 2 ? 2 : 1; lock.unlock()
+    }
     @discardableResult func reset(now: UInt64) -> String {
         lock.lock(); defer { lock.unlock() }
         id = UUID().uuidString; started = now; reported = now
         previousSend = nil; counts.removeAll(keepingCapacity: true)
+        events.removeAll(keepingCapacity: true)
+        clearLevelLocked()
         return id
     }
     func add(_ name: String, _ amount: UInt64 = 1) {
@@ -40,20 +51,50 @@ final class VoiceDiagnostics: @unchecked Sendable {
     func peak(_ name: String, _ value: UInt64) {
         lock.lock(); counts[name] = max(counts[name, default: 0], value); lock.unlock()
     }
+    private func clearLevelLocked() {
+        levelSamples = 0; levelSquares = 0; levelPeak = 0; levelQuiet = 0; levelClipped = 0
+    }
+    private func eventLocked(_ kind: String, value: UInt64, now: UInt64) {
+        guard events.count < 16 else { counts["events_omitted", default: 0] += 1; return }
+        events.append(["kind": kind, "elapsed_ms": (max(now, started) - started) / 1_000_000,
+                       "frame": counts["sent_frames", default: 0] + 1, "value": value])
+    }
+    func captureEvent(_ kind: String, value: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        eventLocked(kind, value: value, now: DispatchTime.now().uptimeNanoseconds)
+    }
+    // Only aggregate active microphone PCM. No samples or speech enter metadata.
+    func level(_ pcm: Data) {
+        var squares: UInt64 = 0, peak: UInt64 = 0, quiet: UInt64 = 0, clipped: UInt64 = 0
+        pcm.withUnsafeBytes { raw in
+            for offset in stride(from: 0, to: max(0, pcm.count - 1), by: 2) {
+                let sample = Int(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: Int16.self)))
+                let magnitude = UInt64(abs(sample))
+                squares += magnitude * magnitude; peak = max(peak, magnitude)
+                if magnitude < 104 { quiet += 1 } // about -50 dBFS; not a speech detector
+                if magnitude >= 32760 { clipped += 1 }
+            }
+        }
+        lock.lock(); defer { lock.unlock() }
+        levelSamples += UInt64(pcm.count / 2); levelSquares += squares
+        levelPeak = max(levelPeak, peak); levelQuiet += quiet; levelClipped += clipped
+    }
     func sent(start: UInt64, end: UInt64, segment: String? = nil) {
         lock.lock(); defer { lock.unlock() }
         if let segment, segment != id { return }
-        counts["sent_frames", default: 0] += 1
         let duration = (end - start) / 1000
+        if duration >= 40000 { eventLocked("send_slow", value: duration, now: start) }
         counts["send_us_total", default: 0] += duration
         counts["send_us_max"] = max(counts["send_us_max", default: 0], duration)
         if let previousSend {
             let interval = (start - previousSend) / 1000
+            if interval >= 60000 { eventLocked("send_gap", value: interval, now: start) }
             counts["interval_us_total", default: 0] += interval
             counts["interval_count", default: 0] += 1
             counts["interval_us_max"] = max(counts["interval_us_max", default: 0], interval)
         }
         previousSend = start
+        counts["sent_frames", default: 0] += 1
     }
     func snapshot(now: UInt64) -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
@@ -63,6 +104,14 @@ final class VoiceDiagnostics: @unchecked Sendable {
         var value: [String: Any] = counts.mapValues { $0 as Any }
         value["type"] = "audio_stats"; value["version"] = 1
         value["segment"] = id; value["elapsed_ms"] = (max(now, started) - started) / 1_000_000
+        if wireVersion == 2 {
+            // A concurrent capture can be newer than the caller's snapshot time.
+            value["elapsed_ms"] = max((max(now, started) - started) / 1_000_000,
+                                      events.compactMap { $0["elapsed_ms"] as? UInt64 }.max() ?? 0)
+            value["version"] = 2; value["events"] = events
+            value["level"] = ["samples": levelSamples, "rms": levelSamples == 0 ? 0 : UInt64(sqrt(Double(levelSquares) / Double(levelSamples))),
+                              "peak": levelPeak, "quiet_samples": levelQuiet, "clipped_samples": levelClipped]
+        } else { value.removeValue(forKey: "events_omitted") }
         return value
     }
     func report(now: UInt64, final: Bool = false, segment: String? = nil) -> String? {
@@ -71,7 +120,7 @@ final class VoiceDiagnostics: @unchecked Sendable {
         let due = final || max(now, reported) - reported >= 5_000_000_000
         let upload = supported
         let value = due ? snapshotLocked(now: now) : nil
-        if due { reported = now }
+        if due { reported = now; events.removeAll(keepingCapacity: true); clearLevelLocked() }
         lock.unlock()
         guard let value, let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { return nil }

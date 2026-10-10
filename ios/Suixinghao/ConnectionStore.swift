@@ -2,7 +2,12 @@ import Foundation
 import Security
 import CryptoKit
 
-struct SavedConnection: Codable { let address: String; let key: String }
+struct SavedConnection: Codable {
+    let address: String
+    let key: String
+    var disconnected: Bool? = nil
+    var shouldAutoRestore: Bool { disconnected != true }
+}
 enum ConnectionStore {
     private static var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

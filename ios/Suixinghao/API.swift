@@ -58,9 +58,13 @@ struct DeviceList: Decodable { let devices: [Device] }
 final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     #if DEBUG
     // Local acceptance injection. Release builds have no mock request path.
+    var testSession: URLSession?
     var testRequest: (@MainActor (String, [String: String]?) async throws -> Data)?
     #endif
     private lazy var session: URLSession = {
+        #if DEBUG
+        if let testSession { return testSession }
+        #endif
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
         config.httpShouldSetCookies = false
@@ -105,6 +109,20 @@ final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 204 else { throw APIError(message: "推送令牌清除失败。") }
+    }
+    func deleteSMS(_ base: URL, token: String, contact: SMSContact, messageID: Int?) async throws {
+        if let messageID, messageID <= 0 { throw APIError(message: "无效的短信记录。") }
+        let path = messageID.map { "voice-test/app/sms/messages/\($0)" } ?? "voice-test/app/sms/thread"
+        let query = messageID == nil ? Self.threadQuery(contact).filter { $0.name != "limit" } : []
+        guard messageID != nil || query.count == 2 else { throw APIError(message: "此会话缺少卡片信息，无法删除。") }
+        var request = URLRequest(url: Self.requestURL(base, path: path, query: query))
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError(message: "未收到删除结果，请刷新核对。") }
+        guard http.statusCode == 200 else {
+            throw APIError(message: "删除短信失败（HTTP \(http.statusCode)），请稍后重试。", statusCode: http.statusCode)
+        }
     }
     func uploadConnectionEvents(_ events: [ConnectionEvent], base: URL, token: String) async throws {
         struct Batch: Encodable { let events: [ConnectionEvent] }

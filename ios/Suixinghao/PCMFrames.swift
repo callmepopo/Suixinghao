@@ -59,6 +59,7 @@ final class PCMFrames: @unchecked Sendable {
             let dropped = excess + excess % 2
             pending.removeFirst(dropped)
             diagnostics.add("capture_dropped_samples", UInt64(dropped / 2))
+            diagnostics.captureEvent("capture_drop", value: UInt64(dropped / 2))
         }
     }
     func next() -> Data {
@@ -69,10 +70,12 @@ final class PCMFrames: @unchecked Sendable {
         }
         guard pending.count >= Self.frameBytes else {
             diagnostics.add("capture_underfill_frames")
+            diagnostics.captureEvent("capture_underfill", value: UInt64(pending.count / 2))
             return Data(repeating: 0, count: Self.frameBytes)
         }
         let frame = Data(pending.prefix(Self.frameBytes))
         pending.removeFirst(Self.frameBytes)
+        diagnostics.level(frame)
         return frame
     }
     static func floatSamples(_ data: Data) -> [Float]? {

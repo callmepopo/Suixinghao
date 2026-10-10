@@ -123,7 +123,7 @@ func stream(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)
 		return
 	}
-	u := websocket.Upgrader{CheckOrigin: allowedOrigin, Subprotocols: []string{"sxh.audio-diagnostics.v1"}}
+	u := websocket.Upgrader{CheckOrigin: allowedOrigin, Subprotocols: []string{"sxh.audio-diagnostics.v2", "sxh.audio-diagnostics.v1"}}
 	c, e := u.Upgrade(w, r, nil)
 	if e != nil {
 		log.Printf("音频通道升级失败: %v", e)
@@ -197,7 +197,7 @@ func stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	go func() { <-ctx.Done(); c.Close() }()
-	c.SetReadLimit(4096)
+	c.SetReadLimit(8192)
 	for {
 		c.SetReadDeadline(time.Now().Add(15 * time.Second))
 		kind, b, e := c.ReadMessage()
@@ -224,6 +224,7 @@ func stream(w http.ResponseWriter, r *http.Request) {
 			log.Printf("收到浏览器第一个音频帧（320 字节）")
 		}
 		noteUp()
+		stats.receivedFrame()
 		if run := activeRun(); run != "" {
 			if !uplinkAllowed(phone.snapshot(), run, activeRun()) {
 				b = make([]byte, 320)

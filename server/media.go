@@ -144,11 +144,14 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 				if !uplinkAllowed(phone.snapshot(), run, activeRun()) {
 					b = make([]byte, 320)
 				}
+				active := uplinkAllowed(phone.snapshot(), run, activeRun())
 				writeRecording(true, b)
+				writeStarted := time.Now()
 				if _, e := in.Write(b); e != nil {
 					log.Printf("上行结束: aplay 写入 %d 字节后退出: %v", total, e)
 					return
 				}
+				stats.moduleWrite(active, time.Since(writeStarted))
 				total += len(b)
 				stats.output(true)
 			}

@@ -72,7 +72,7 @@ POST phone请求及成功200响应：
 
 诊断响应字段：server_version、module_available、module_checked_at、module_rtt_ms、sim_status、network_status、network_checked_at、可选signal_rssi(0～31)。时间为RFC3339；没有设备/SIM标识和原始AT文本。控制worker仅空闲时分轮读取CPIN/CEREG/CSQ，每轮完成至少间隔30秒；通话时用缓存，LTE注册不能证明IMS语音可用。
 
-声音WebSocket双向二进制为 **8000 Hz / S16_LE / 单声道，每包160样本=320字节=20ms**。客户端负责采集重采样和系统音频。上行固定20ms一包；待机可每5秒发文本 `ping`，15秒无上行/心跳会断开。下行也有JSON `{"status":"<description>"}` / `{"error":"<description>"}`，必须同时处理。接通后才启用模块路由和ALSA，待机不持续占声卡。单消息上限4KiB。
+声音WebSocket双向二进制为 **8000 Hz / S16_LE / 单声道，每包160样本=320字节=20ms**。客户端负责采集重采样和系统音频。上行固定20ms一包；待机可每5秒发文本 `ping`，15秒无上行/心跳会断开。下行也有JSON `{"status":"<description>"}` / `{"error":"<description>"}`，必须同时处理。接通后才启用模块路由和ALSA，待机不持续占声卡。单消息上限8KiB（v1诊断仍限制2KiB）。
 
 可选子协议 `sxh.audio-diagnostics.v1`：新客户端在握手中请求，服务确认后才每5秒发送一次 `audio_stats`。未协商时只发送PCM/ping，不上传诊断。JSON字段：type=audio_stats、version=1、segment为随机UUID、elapsed_ms及数值计数：sent_frames/send_us_total/send_us_max/interval_us_total/interval_count/interval_us_max/missed_slots、captured_samples/capture_queue_peak_samples/capture_dropped_samples、waiting_silence_frames/muted_silence_frames/capture_underfill_frames、down_received_frames/down_inactive_frames/down_dropped_frames/down_played_frames/playback_queue_peak_frames。耗时/间隔单位微秒，elapsed_ms毫秒，samples为样本数，其余frame为20ms包。最多2KiB、服务至多每4秒接受一次，elapsed_ms≤24小时、计数为0～10^12整数；省略按0，非法/额外字段忽略不打断PCM。客户端数值不证明端到端延时或实际听感。
 
@@ -82,7 +82,7 @@ GET recording返回 `{"enabled":false}`；POST同JSON返回当前开关，仅影
 
 ## 短信与设备（App Key）
 
-这些接口使用App Key，不能用电话会话替代。服务按固定白名单调用HiDeck HTTP API，不开放任意AT、配置、删除、任意URL代理。成功响应按HiDeck 2.1.23透传，最大4MiB；上游非2xx状态保留但错误正文统一为固定描述。
+这些接口使用App Key，不能用电话会话替代。服务按固定白名单调用HiDeck HTTP API，仅新增历史短信删除，不开放任意AT、配置或任意URL代理。成功响应按HiDeck 2.1.23透传，最大4MiB；上游非2xx状态保留但错误正文统一为固定描述。
 
 | 方法 / 路径 | 参数/响应 |
 |---|---|
@@ -154,3 +154,21 @@ GET响应含generated_at、retention_days=30、summaries、outages、events。su
 ### 接通前音频
 
 服务端0.1.1对拥有音频会话的呼出拨号阶段建立模块声音链路，status的state仍为dialing、media可为true；media只表示链路建立，不代表对方已接听。音频帧格式不变，服务端接通前仅向模块写静音，接通后才允许麦克风帧；录音也从active后开始。App0.1.1在dialing且media=true时允许下行播放，取消合成本地等待音，不将早期音频标记为接听或已接通。是否有运营商提示、回铃或彩铃取决于模块和运营商；尚待真机验证。
+
+## 日常通话诊断 v2
+
+App／服务0.1.2新增可选 `sxh.audio-diagnostics.v2`，优先协商v2，失败退回v1或原PCM。音频仍为320字节／20ms，不插入音频头、不改变缓冲、音量或发送节拍。v2每5秒上传一次；最多8KiB、每4秒接受一次。v1仍限制2KiB并保留原字段。
+
+v2在audio_stats中增加events（每窗口最多16条）与level。事件只允许send_gap、send_slow、capture_drop、capture_underfill；字段为kind、elapsed_ms（本连接单调时间）、frame（下一/当前发送帧号）、value。send_gap阈值60ms，send_slow阈值40ms，二者value为微秒；采集事件value为样本数。超出窗口上限累计events_omitted，不额外上传。level仅统计接通且未静音时实际发出的PCM：samples、rms、peak、quiet_samples、clipped_samples；rms/peak为S16幅值，quiet阈值104（约-50dBFS）、clipped阈值32760。静音比例不是语音识别或说话判定，不能直接证明麦克风故障。每窗口重置数值，不保存样本。
+
+服务音频关联日志包含随机trace（声音连接级）、segment（通话段）、server_at、server_elapsed_ms、socket_received_frames（该声音连接累计接收序号）、up_written、recorded_up_ms和phone。客户端上传紧跟音频帧之后，同一WebSocket按序到达，sent_frames与socket_received_frames形成关联锚点；不依赖手机与后台墙钟一致。短通话未到5秒可能无手机上报，收尾本机诊断不保证传到后台。
+
+服务每5秒及结束记录异常时间线（每窗口最多32条，超出累计events_omitted）：receive_gap≥60ms、receive_drop、module_write_slow≥40ms、module_underrun、module_overrun。时间线带服务UTC、通话elapsed_ms和接收帧序号；写入事件序号表示当时接收进度，并非播放完成序号。receive_queue_ms仅为服务接收队列估算，不能代表ALSA或模块内部缓冲。recorded_up_ms为接通阶段成功写入的PCM长度，即使关闭录音也计算，非实际录音存在证明；网络空隙不在连续WAV内，不能用文件时长当墙钟。
+
+所有日志仅保留时间、随机关联号与数值，不保存号码、音频内容或个人地址，沿用现有服务日志轮转；未增加录音、AT查询或硬件写入。
+
+### 0.1.3 历史短信删除（App Key）
+
+- DELETE `/app/sms/messages/{id}`：正整数记录ID，成功200，透传上游删除结果；只允许该固定路径。
+- DELETE `/app/sms/thread?iccid=<card>&peer=<peer>`：成功200，删除对应SIM/对方的全部历史。iccid、imsi、device_id必须且只能提供一个，不允许无SIM选择器删除；建议使用iccid。peer必填。
+- 未授权401/403、错误ID或缺失/冲突选择器400、错误方法405、上游失败保留状态并使用固定错误正文。App Key仅作为入口鉴权，转发使用后台独立会话。删除不调用硬件AT，不撤回已发送短信。

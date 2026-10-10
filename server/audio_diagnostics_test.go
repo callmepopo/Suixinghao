@@ -25,7 +25,7 @@ func TestAudioMetadataBoundsRateAndIsolation(t *testing.T) {
 	}
 	var base map[string]any
 	json.Unmarshal(payload, &base)
-	for name, value := range map[string]any{"number": "private", "sent_frames": -1, "elapsed_ms": 86400001, "segment": "private", "version": 2} {
+	for name, value := range map[string]any{"number": "private", "sent_frames": -1, "elapsed_ms": 86400001, "segment": "private", "version": 3} {
 		clone := map[string]any{}
 		for k, v := range base {
 			clone[k] = v
@@ -150,4 +150,49 @@ func TestStreamMetadataCompatibilityWithoutHardware(t *testing.T) {
 	}
 	c.Close()
 	<-done
+}
+
+func TestDailyDiagnosticsTimelineAndValidation(t *testing.T) {
+	s := &audioStats{}
+	s.begin("call")
+	now := s.started
+	s.receivedFrame()
+	s.arrivalAt("call", false, 1, now)
+	s.receivedFrame()
+	s.arrivalAt("call", false, 1, now.Add(190*time.Millisecond))
+	s.moduleWrite(true, 45*time.Millisecond)
+	if len(s.events) != 2 || s.events[0].Value != 190000 || s.events[0].Frame != 2 || s.events[1].Kind != "module_write_slow" || s.recordedFrames != 1 {
+		t.Fatal("gap/write timeline")
+	}
+	payload := map[string]any{"type": "audio_stats", "version": 2, "segment": "12345678-1234-1234-1234-123456789abc", "elapsed_ms": 5000, "sent_frames": 250,
+		"events": []map[string]any{{"kind": "send_gap", "elapsed_ms": 4000, "frame": 200, "value": 190000}},
+		"level":  map[string]uint64{"samples": 160, "rms": 1000, "peak": 2000, "quiet_samples": 1, "clipped_samples": 0}}
+	b, _ := json.Marshal(payload)
+	if !s.acceptClient(b, now.Add(5*time.Second)) {
+		t.Fatal("v2 rejected")
+	}
+	for _, invalid := range []any{
+		[]map[string]any{{"kind": "send_gap", "elapsed_ms": 4000, "frame": 200, "value": 190000, "number": "private"}},
+		[]map[string]any{{"kind": "private-content", "elapsed_ms": 4000, "frame": 200, "value": 190000}},
+		[]map[string]any{{"kind": "send_gap", "elapsed_ms": 6000, "frame": 200, "value": 190000}},
+	} {
+		payload["events"] = invalid
+		b, _ = json.Marshal(payload)
+		if (&audioStats{}).acceptClient(b, now) {
+			t.Fatal("unsafe event accepted")
+		}
+	}
+	for i := 0; i < 100; i++ {
+		s.Lock()
+		s.eventLocked("receive_gap", 60000, now)
+		s.Unlock()
+	}
+	if len(s.events) != 32 || s.eventsOmitted == 0 {
+		t.Fatal("unbounded events")
+	}
+	trace := s.trace
+	s.begin("next")
+	if len(s.events) != 0 || s.writeMaxUS != 0 || s.recordedFrames != 0 || s.socketFrames != 2 || s.trace != trace {
+		t.Fatal("call reset/socket correlation")
+	}
 }

@@ -147,7 +147,7 @@ func TestAppProxyAllowlistAndCredentialIsolation(t *testing.T) {
 		t.Fatalf("send %d", w.Code)
 	}
 	before := calls
-	for _, path := range []string{"/settings", "/devices/demo/actions/at", "/sms/messages/1"} {
+	for _, path := range []string{"/settings", "/devices/demo/actions/at"} {
 		if w := appTestRequest(h, "GET", "/voice-test/app"+path, key, ""); w.Code != 404 {
 			t.Fatal("path outside allowlist")
 		}
@@ -155,7 +155,7 @@ func TestAppProxyAllowlistAndCredentialIsolation(t *testing.T) {
 	if w := appTestRequest(h, "POST", "/voice-test/app/sms/send", key, `{"cmd":"AT"}`); w.Code != 400 {
 		t.Fatal("unexpected body field")
 	}
-	if w := appTestRequest(h, "DELETE", "/voice-test/app/sms/thread", key, ""); w.Code != 405 {
+	if w := appTestRequest(h, "DELETE", "/voice-test/app/sms/thread", key, ""); w.Code != 400 {
 		t.Fatal("unexpected method")
 	}
 	r := httptest.NewRequest("GET", origin+"/voice-test/app/devices", nil)
@@ -212,5 +212,55 @@ func TestAppProxyMarksOnlyScopedSMSThreadRead(t *testing.T) {
 	w := appTestRequest(h, "PATCH", path, key, `{"through_id":42}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"unread_count":0`) || calls != 1 {
 		t.Fatalf("scoped read marker failed: status=%d calls=%d", w.Code, calls)
+	}
+}
+
+func TestAppSMSDeletionScopeAndAuthentication(t *testing.T) {
+	h, admin := appTestSetup(t)
+	_, key := issueTestKey(t, h, admin)
+	oldUp, oldConfig, oldClient := upstream, configPath, client
+	t.Cleanup(func() { upstream = oldUp; configPath = oldConfig; client = oldClient })
+	configPath = filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(configPath, []byte("web:\n  password: test-signing-material\n"), 0600)
+	calls := 0
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != "DELETE" || strings.Contains(r.Header.Get("Authorization"), key) {
+			t.Error("unsafe delete forwarding")
+		}
+		switch r.URL.Path {
+		case "/api/sms/thread":
+			if r.URL.Query().Get("iccid") != "synthetic-card" || r.URL.Query().Get("peer") != "+synthetic-peer" {
+				t.Error("incorrect SIM/thread scope")
+			}
+		case "/api/sms/messages/42":
+		default:
+			t.Error("unexpected delete target")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer fake.Close()
+	upstream, client = fake.URL, fake.Client()
+	for _, path := range []string{"/sms/thread", "/sms/thread?peer=x", "/sms/thread?iccid=a&imsi=b&peer=x", "/sms/messages/0", "/sms/messages/00", "/sms/messages/bad", "/sms/messages/42/extra"} {
+		if got := appTestRequest(h, "DELETE", "/voice-test/app"+path, key, "").Code; got != 400 {
+			t.Fatalf("invalid deletion accepted: %s %d", path, got)
+		}
+	}
+	for _, token := range []string{"", admin} {
+		if got := appTestRequest(h, "DELETE", "/voice-test/app/sms/messages/42", token, "").Code; got != 401 && got != 403 {
+			t.Fatal("delete without App Key")
+		}
+	}
+	if calls != 0 {
+		t.Fatal("rejected deletion reached upstream")
+	}
+	for _, path := range []string{"/sms/thread?iccid=synthetic-card&peer=%2Bsynthetic-peer", "/sms/messages/42"} {
+		if got := appTestRequest(h, "DELETE", "/voice-test/app"+path, key, "").Code; got != 200 {
+			t.Fatalf("delete status %d", got)
+		}
+	}
+	if calls != 2 {
+		t.Fatal("deletion not forwarded exactly once")
 	}
 }

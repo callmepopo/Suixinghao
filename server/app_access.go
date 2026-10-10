@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -251,8 +252,16 @@ func appProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/voice-test/app")
 	method := map[string]string{"/devices": "GET", "/sms/contacts": "GET", "/sms/thread": "GET", "/sms/send": "POST"}[path]
-	if path == "/sms/thread" && r.Method == "PATCH" {
-		method = "PATCH"
+	if path == "/sms/thread" && (r.Method == "PATCH" || r.Method == "DELETE") {
+		method = r.Method
+	}
+	if strings.HasPrefix(path, "/sms/messages/") {
+		id := strings.TrimPrefix(path, "/sms/messages/")
+		if number, err := strconv.ParseUint(id, 10, 64); err != nil || number == 0 || strings.Trim(id, "0123456789") != "" {
+			w.WriteHeader(400)
+			return
+		}
+		method = "DELETE"
 	}
 	if method == "" {
 		w.WriteHeader(404)
@@ -261,6 +270,18 @@ func appProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != method {
 		w.WriteHeader(405)
 		return
+	}
+	if method == "DELETE" && path == "/sms/thread" {
+		selectors := 0
+		for _, name := range []string{"iccid", "imsi", "device_id"} {
+			if strings.TrimSpace(r.URL.Query().Get(name)) != "" {
+				selectors++
+			}
+		}
+		if selectors != 1 || strings.TrimSpace(r.URL.Query().Get("peer")) == "" {
+			w.WriteHeader(400)
+			return
+		}
 	}
 	var body []byte
 	if method == "POST" || method == "PATCH" {

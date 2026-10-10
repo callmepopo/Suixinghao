@@ -53,6 +53,27 @@ import Foundation
         frames.diagnostics.reset(now: 40_000_000)
         try check(frames.diagnostics.snapshot(now: 40_000_000)["sent_frames"] == nil, "新连接计数清零")
         try check(frames.diagnostics.report(now: 41_000_000, final: true, segment: old) == nil, "旧任务结束不汇总新连接")
+        let daily = VoiceDiagnostics(); daily.negotiate(true, version: 2); daily.reset(now: 0)
+        var pcm = Data()
+        for value in [Int16(1000), -1000, 0, Int16.max] {
+            var sample = value.littleEndian
+            withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
+        }
+        daily.level(pcm)
+        daily.sent(start: 0, end: 1_000_000)
+        daily.sent(start: 190_000_000, end: 240_000_000)
+        let dailyStats = daily.snapshot(now: 250_000_000)
+        let events = dailyStats["events"] as! [[String: Any]]
+        try check(events.count == 2 && events.allSatisfy { $0["frame"] as? UInt64 == 2 }, "异常事件对齐同一发送帧")
+        let level = dailyStats["level"] as! [String: UInt64]
+        try check(level["samples"] == 4 && level["peak"] == 32767 && level["quiet_samples"] == 1 && level["clipped_samples"] == 1, "音量数值不保存原始样本")
+        _ = daily.report(now: 5_000_000_000)
+        try check((daily.snapshot(now: 5_000_000_000)["events"] as! [[String: Any]]).isEmpty, "每个窗口事件仅上报一次")
+        for _ in 0..<100 { daily.captureEvent("capture_drop", value: 160) }
+        try check((daily.snapshot(now: DispatchTime.now().uptimeNanoseconds)["events"] as! [[String: Any]]).count == 16, "异常风暴限制内存与上传大小")
+        daily.negotiate(true, version: 1)
+        let legacy = daily.snapshot(now: 6_000_000_000)
+        try check(legacy["events"] == nil && legacy["level"] == nil && legacy["events_omitted"] == nil, "旧服务仅收到v1字段")
         print("通过：固定20ms节拍、阻塞跳过、静音分类、缓冲丢弃与连接计数隔离")
         guard let i = CommandLine.arguments.firstIndex(of: "--loopback"), CommandLine.arguments.count > i + 2,
               let base = URL(string: CommandLine.arguments[i+1]), base.host == "127.0.0.1", base.scheme == "http", let seconds = Double(CommandLine.arguments[i+2]), seconds > 0, seconds <= 120 else { return }

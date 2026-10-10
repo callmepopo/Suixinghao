@@ -10,6 +10,7 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
     private var sendTask: Task<Void, Never>?
     private var sending = UUID()
     private var diagnosticsSupported = false
+    private var diagnosticsVersion = 1
     private var diagnostics: VoiceDiagnostics?
     private(set) var ready = false
     var onAudio: ((Data) -> Void)?
@@ -27,7 +28,7 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
         #endif
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("sxh.audio-diagnostics.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        request.setValue("sxh.audio-diagnostics.v2, sxh.audio-diagnostics.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.urlCache = nil
@@ -81,7 +82,7 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
         // One worker per socket. Repeated setup cannot leave two concurrent writers.
         guard sendTask == nil else { return }
         diagnostics = frames.diagnostics
-        frames.diagnostics.negotiate(diagnosticsSupported)
+        frames.diagnostics.negotiate(diagnosticsSupported, version: diagnosticsVersion)
         let generation = UUID(); sending = generation
         sendTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {
@@ -116,7 +117,8 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
     nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         Task { @MainActor in
             guard self.socket === webSocketTask else { return }
-            self.diagnosticsSupported = `protocol` == "sxh.audio-diagnostics.v1"
+            self.diagnosticsSupported = ["sxh.audio-diagnostics.v1", "sxh.audio-diagnostics.v2"].contains(`protocol` ?? "")
+            self.diagnosticsVersion = `protocol` == "sxh.audio-diagnostics.v2" ? 2 : 1
             let pending = self.opening; self.opening = nil; pending?.resume()
         }
     }

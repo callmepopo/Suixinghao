@@ -95,7 +95,10 @@ final class AppModel {
         systemCallActive || (mediaConnected && ownedCallID != nil)
     }
 
+    var manuallyDisconnected = ConnectionStore.load()?.disconnected == true
+
     var connectionTitle: String {
+        if manuallyDisconnected { return "已断开" }
         if demo { return "演示模式" }
         if restoringConnection { return "正在恢复连接" }
         if connected && statusFresh { return "已连接 · \(status?.title ?? "待机")" }
@@ -103,7 +106,7 @@ final class AppModel {
     }
 
     init() {
-        if ConnectionStore.load() != nil { demo = false; restoringConnection = true }
+        if let saved = ConnectionStore.load() { demo = false; restoringConnection = saved.shouldAutoRestore }
         transport.onAudio = { [weak self] data in self?.audio.play(data) }
         transport.onFailure = { [weak self] message in
             guard let self else { return }
@@ -168,6 +171,7 @@ final class AppModel {
         }
     }
     func connect(address: String, key: String) async {
+        manuallyDisconnected = false
         authenticationRejected = false
         // All startup / PushKit / answer callers await the same critical recovery.
         do {
@@ -594,6 +598,8 @@ final class AppModel {
                 } catch { }
             }
             await logout()
+            if let saved = ConnectionStore.load(), saved.disconnected != true { result = ["ok": false, "stage": "disconnect-persistence"] }
+            try? ConnectionStore.clear() // Debug test fixture cleanup, not the user disconnect action.
             if ConnectionStore.load() != nil { result = ["ok": false, "stage": "keychain-cleanup"] }
         }
         notice = nil
@@ -605,8 +611,9 @@ final class AppModel {
     }
     #endif
     func restore() async {
+        guard !manuallyDisconnected else { restoringConnection = false; return }
         if connected && !restoringConnection { return }
-        if let saved = ConnectionStore.load() {
+        if let saved = ConnectionStore.load(), saved.shouldAutoRestore {
             demo = false
             await connect(address: saved.address, key: saved.key)
         } else if !connectionOperation.isRunning { restoringConnection = false }
@@ -827,7 +834,7 @@ final class AppModel {
     private func networkChanged(available: Bool, signature: String) {
         let changed = networkSignature != nil && networkSignature != signature
         networkSignature = signature; networkAvailable = available
-        guard startupStarted, !demo, !authenticationRejected else { return }
+        guard startupStarted, !manuallyDisconnected, !demo, !authenticationRejected else { return }
         telemetry.network(available: available, changed: changed)
         if !available {
             statusFresh = false
@@ -854,7 +861,7 @@ final class AppModel {
         }
     }
     private func scheduleRecovery(immediate: Bool = false) {
-        guard !demo, !loggingOut, !authenticationRejected, networkAvailable, isForeground || canRunCallInBackground,
+        guard !manuallyDisconnected, !demo, !loggingOut, !authenticationRejected, networkAvailable, isForeground || canRunCallInBackground,
               connected || ConnectionStore.load() != nil else { return }
         if recoveryTask != nil && !immediate { return }
         recoveryTask?.cancel()
@@ -1268,6 +1275,15 @@ final class AppModel {
                                          last_timestamp: old.last_timestamp, unread_count: unread)
         }
     }
+    func deleteSMS(contact: SMSContact, messageID: Int? = nil) async throws {
+        guard !demo, let base, connected else { throw APIError(message: "请先连接服务。") }
+        let run = epoch
+        try await api.deleteSMS(base, token: smsToken, contact: contact, messageID: messageID)
+        guard run == epoch, connected else { return }
+        if messageID == nil { contacts.removeAll { $0.id == contact.id } }
+        do { try await reloadContent() }
+        catch { notice = "短信已删除，列表暂未刷新，请下拉刷新。" }
+    }
     func send(number: String, message: String, device: String, showNotice: Bool = true, allowShortCode: Bool = false) async -> Bool {
         var success = false
         await perform {
@@ -1282,6 +1298,11 @@ final class AppModel {
     }
     func logout() async {
         guard !busy, !callBusy, !restoringConnection else { return }
+        if var saved = ConnectionStore.load() {
+            saved.disconnected = true
+            do { try ConnectionStore.save(saved) } catch { notice = error.localizedDescription; return }
+        }
+        manuallyDisconnected = true
         loggingOut = true
         telemetry.suspend(reason: "logout"); historyUploadTask?.cancel()
         defer { loggingOut = false }
@@ -1296,13 +1317,13 @@ final class AppModel {
         await endCall()
         if let base { try? await api.delete(base, path: "voice-test/app/voip-token", token: smsToken) }
         if let base { try? await api.delete(base, path: "voice-test/app/sms-push-token", token: smsToken) }
-        do { try ConnectionStore.clear() } catch { notice = error.localizedDescription; busy = false; return }
         telemetry.disconnect()
         connectionHistory = nil; localConnectionSummary = nil; localConnectionEvents = []; pendingConnectionEvents = 0
         if let base, !voiceToken.isEmpty { _ = try? await api.request(base, path: "voice-test/logout", token: voiceToken, body: [:]) }
         smsToken = ""; voiceToken = ""; base = nil; voiceExpires = .distantPast
         contacts = []; devices = []; status = nil; connected = false; demo = true; endpoint = ""; statusFresh = false
         callHistory = []
+        connectionMessage = "已断开，地址和 Key 已保留，点击连接并验证即可恢复。"
         busy = false
     }
 }

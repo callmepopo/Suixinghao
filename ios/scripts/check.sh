@@ -15,4 +15,6 @@ xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/API.swift 
 .build/checks/reliability-check
 xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/ConnectionHistory.swift scripts/history-check.swift -o .build/checks/history-check
 .build/checks/history-check
+xcrun swiftc -D DEBUG -module-cache-path .build/checks/module-cache Suixinghao/API.swift Suixinghao/ConnectionHistory.swift Suixinghao/ConnectionStore.swift scripts/sms-settings-check.swift -o .build/checks/sms-settings-check
+.build/checks/sms-settings-check
 python3 scripts/version.py
