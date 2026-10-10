@@ -63,9 +63,14 @@ struct PhoneView: View {
         NavigationStack {
             GeometryReader { viewport in
                 let compact = viewport.size.height < 650 || viewport.size.width < 390
-                let keySize = min(compact ? 60.0 : 72.0, max(44.0, (viewport.size.width - 76) / 3))
+                let spacing = compact ? 4.0 : 12.0
+                // Budget for the fixed three-row contact slot and bottom dial actions.
+                let reservedHeight = 44.0 + 44 + 108 + 74 + 24 + 20 + 12
+                let heightBudget = (viewport.size.height - reservedHeight) / 4
+                let keySize = min(compact ? min(60.0, max(44.0, heightBudget)) : 72.0,
+                                  max(44.0, (viewport.size.width - 76) / 3))
                 ScrollView {
-                    VStack(spacing: compact ? 8 : 12) {
+                    VStack(spacing: spacing) {
                         HStack(spacing: 10) {
                             Text("随行号").font(.system(size: 28, weight: .bold)).lineLimit(1)
                             Spacer(minLength: 4)
@@ -143,7 +148,7 @@ struct PhoneView: View {
                                         .accessibilityAddTraits(.updatesFrequently)
                                 }
                             }
-                        if !owned && (selectedContact != nil || !contactMatches.isEmpty) {
+                        if !owned {
                             VStack(spacing: 0) {
                                 if let selectedContact {
                                     HStack { Image(systemName: "person.crop.circle"); Text(selectedContact); Spacer() }
@@ -165,9 +170,15 @@ struct PhoneView: View {
                                     }
                                 }
                                 Spacer(minLength: 0)
-                            }.frame(height: selectedContact != nil ? 36 : CGFloat(contactMatches.count) * 36).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            .frame(height: 108, alignment: .top)
+                            .background {
+                                if selectedContact != nil || !contactMatches.isEmpty {
+                                    RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground))
+                                }
+                            }
                         }
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: compact ? 12 : 18), count: 3), spacing: compact ? 8 : 10) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: compact ? 12 : 18), count: 3), spacing: compact ? 4 : 10) {
                             ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
                                 Button {
                                     if owned {
@@ -290,6 +301,19 @@ struct PhoneView: View {
         }
     }
     private func loadContactsIfAllowed() async {
+        #if DEBUG
+        // Synthetic layout fixtures; never read contacts or connect to a service.
+        if let fixture = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--preview-dialer=") }),
+           let count = Int(fixture.split(separator: "=").last ?? ""), (0...4).contains(count) {
+            number = count == 0 ? "" : "2"
+            selectedContact = count == 4 ? "布局测试联系人" : nil
+            contactMatches = (0..<min(count, 3)).map {
+                PhoneContact(id: "layout-\($0)", name: "布局测试\($0 + 1)", number: "0000000000", dialInitials: "2", dialFullName: "2")
+            }
+            if selectedContact != nil { contactMatches = [] }
+            return
+        }
+        #endif
         guard PhoneContacts.canRead else { phoneContacts = []; contactMatches = []; return }
         phoneContacts = (try? await PhoneContacts.load()) ?? []
         updateMatches()
