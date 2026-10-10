@@ -14,17 +14,45 @@ import (
 )
 
 func relayEnabled() bool {
-	return os.Getenv("VOICE_WEB_PUSH_RELAY_URL") != "" || os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE") != ""
+	for _, suffix := range []string{"", "_SANDBOX", "_PRODUCTION"} {
+		if os.Getenv("VOICE_WEB_PUSH_RELAY_URL"+suffix) != "" || os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// An explicit environment route never borrows credentials from another route.
+// The original pair remains the fallback for single-environment deployments.
+func relayRoute(environment string) (string, string, error) {
+	if environment != "sandbox" && environment != "production" {
+		return "", "", errors.New("invalid relay environment")
+	}
+	suffix := "_" + strings.ToUpper(environment)
+	endpoint := os.Getenv("VOICE_WEB_PUSH_RELAY_URL" + suffix)
+	credential := os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE" + suffix)
+	if endpoint == "" && credential == "" {
+		endpoint = os.Getenv("VOICE_WEB_PUSH_RELAY_URL")
+		credential = os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE")
+	}
+	if endpoint == "" || credential == "" {
+		return "", "", errors.New("incomplete relay route")
+	}
+	return endpoint, credential, nil
 }
 
 var relayHTTPClient = &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 func forwardRelay(ctx context.Context, input relayPush) (int, string, error) {
-	u, err := url.Parse(os.Getenv("VOICE_WEB_PUSH_RELAY_URL"))
+	endpoint, credential, err := relayRoute(input.Environment)
+	if err != nil {
+		return 0, "", err
+	}
+	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return 0, "", errors.New("invalid relay HTTPS endpoint")
 	}
-	b, err := os.ReadFile(os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"))
+	b, err := os.ReadFile(credential)
 	if err != nil {
 		return 0, "", errors.New("relay credential unavailable")
 	}

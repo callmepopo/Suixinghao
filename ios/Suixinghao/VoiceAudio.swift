@@ -151,6 +151,13 @@ final class VoiceAudio {
         let speaker = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
         onSpeakerChanged?(speaker)
     }
+    func setSpeaker(_ enabled: Bool) throws {
+        guard engine != nil else { throw APIError(message: "声音通道尚未就绪。") }
+        // Preserve CallKit activation and the existing input tap/converter.
+        // The configuration-change observer resumes the same graph if iOS pauses it.
+        try AVAudioSession.sharedInstance().overrideOutputAudioPort(enabled ? .speaker : .none)
+        reportSpeakerRoute()
+    }
     private func resumeAfterConfigurationChange(_ graph: AVAudioEngine) async {
         // iOS can consume queued buffers while rebuilding the output route without playing them.
         // Drop that queue after the route settles, then resume new incoming frames.

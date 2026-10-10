@@ -90,11 +90,21 @@ final class SMSNotifications: NSObject, UIApplicationDelegate, @preconcurrency I
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         Task { await model?.refresh() }
+        if notification.request.content.categoryIdentifier == IncomingCallReminder.category {
+            completionHandler([]) // CallKit already presents foreground incoming calls.
+            return
+        }
         completionHandler([.banner, .sound])
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        if response.notification.request.content.categoryIdentifier == IncomingCallReminder.category {
+            // Tapping only opens the app; it never answers, ends a call or opens SMS.
+            Task { await model?.refresh() }
+            completionHandler()
+            return
+        }
         Task {
             if let model {
                 model.openSMSFromNotification = true

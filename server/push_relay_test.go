@@ -189,6 +189,62 @@ func TestRelayGrantIssueAndRevoke(t *testing.T) {
 type relayRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f relayRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRelayMixedEnvironments(t *testing.T) {
+	for _, suffix := range []string{"", "_SANDBOX", "_PRODUCTION"} {
+		t.Setenv("VOICE_WEB_PUSH_RELAY_URL"+suffix, "")
+		t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix, "")
+	}
+	keys := map[string]string{"sandbox": "sxr_" + strings.Repeat("4", 64), "production": "sxr_" + strings.Repeat("5", 64)}
+	for environment, key := range keys {
+		file := filepath.Join(t.TempDir(), "credential")
+		if err := os.WriteFile(file, []byte(key), 0600); err != nil {
+			t.Fatal(err)
+		}
+		suffix := "_" + strings.ToUpper(environment)
+		t.Setenv("VOICE_WEB_PUSH_RELAY_URL"+suffix, "https://"+environment+".example.org/push-relay/v1/push")
+		t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix, file)
+	}
+	previous := relayHTTPClient
+	t.Cleanup(func() { relayHTTPClient = previous })
+	requests := 0
+	relayHTTPClient = &http.Client{Transport: relayRoundTripper(func(r *http.Request) (*http.Response, error) {
+		requests++
+		var payload relayPush
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if r.URL.Host != payload.Environment+".example.org" || r.Header.Get("Authorization") != "Bearer "+keys[payload.Environment] {
+			t.Fatal("push crossed an environment or credential boundary")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"apns_status":200}`)), Header: make(http.Header)}, nil
+	})}
+	for _, sandbox := range []bool{true, false} {
+		if status, _, err := dispatchVoIP(context.Background(), voipDevice{Sandbox: sandbox, Token: strings.Repeat("a", 64)}, strings.Repeat("b", 32)); status != 200 || err != nil {
+			t.Fatal("VoIP route failed", err)
+		}
+		if status, _, err := dispatchSMS(context.Background(), smsPushDevice{Sandbox: sandbox, Token: strings.Repeat("a", 64)}); status != 200 || err != nil {
+			t.Fatal("SMS route failed", err)
+		}
+	}
+	if requests != 4 {
+		t.Fatal("missing mixed-environment requests")
+	}
+	// Partial explicit settings must not fall back to a working default pair.
+	t.Setenv("VOICE_WEB_PUSH_RELAY_URL", "https://sandbox.example.org/push-relay/v1/push")
+	t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE", os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE_SANDBOX"))
+	t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE_PRODUCTION", "")
+	if _, _, err := dispatchSMS(context.Background(), smsPushDevice{}); err == nil {
+		t.Fatal("partial route borrowed fallback credentials")
+	}
+	if requests != 4 {
+		t.Fatal("partial route reached network")
+	}
+	if _, _, err := forwardRelay(context.Background(), relayPush{Environment: "unknown"}); err == nil {
+		t.Fatal("unknown environment accepted")
+	}
+}
+
 func TestRelayClientConfigurationAndFixedPayload(t *testing.T) {
 	key := "sxr_" + strings.Repeat("3", 64)
 	file := filepath.Join(t.TempDir(), "credential")

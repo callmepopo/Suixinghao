@@ -2,6 +2,7 @@ import AVFoundation
 import CallKit
 import Foundation
 import PushKit
+import UIKit
 
 @MainActor
 final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @preconcurrency CXProviderDelegate {
@@ -11,6 +12,10 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
     private let controller = CXCallController()
     private var session = CallSession()
     private var setupTimeout: Task<Void, Never>?
+    private let reminder = IncomingCallReminder()
+    private var reminderTask: Task<Void, Never>?
+    private var reminderCallID: String?
+    private var reminderBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     private(set) var token: String?
 
     init(model: AppModel) {
@@ -85,6 +90,7 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
                 }
                 if let caller = await self.model?.systemCaller(for: id), self.session.contains(uuid) {
                     self.provider.reportCall(with: uuid, updated: self.update(number: caller.number, name: caller.name))
+                    if !existing { self.startReminder(id: id, uuid: uuid) }
                 } else if self.session.contains(uuid) {
                     self.reportEnded(reason: .remoteEnded)
                 }
@@ -98,6 +104,45 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume() }
             }
+        }
+    }
+
+    private func startReminder(id: String, uuid: UUID) {
+        guard session.contains(uuid), session.call?.waitingForAudio == false,
+              session.call?.mediaStarted == false else { return }
+        reminderTask?.cancel()
+        reminderCallID = id
+        reminderBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Incoming reminder") { [weak self] in
+            Task { @MainActor in self?.clearReminder(id) }
+        }
+        reminderTask = Task { [weak self] in
+            guard let self else { return }
+            // Confirm the call is still ringing before presenting an ordinary reminder.
+            guard await self.model?.incomingReminderIsRinging(id) == true,
+                  self.session.contains(uuid), self.session.call?.waitingForAudio == false,
+                  self.session.call?.mediaStarted == false, !Task.isCancelled else {
+                self.clearReminder(id); return
+            }
+            await self.reminder.show(id)
+            for _ in 0..<60 {
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+                guard self.session.contains(uuid), !Task.isCancelled else { return }
+                let ringing = await self.model?.incomingReminderIsRinging(id)
+                if ringing == false { self.clearReminder(id); return }
+            }
+            // Bounded cleanup if status becomes unreachable; never prolong a call.
+            self.clearReminder(id)
+        }
+    }
+
+    private func clearReminder(_ id: String) {
+        reminder.clear(id)
+        guard reminderCallID == id else { return }
+        reminderCallID = nil
+        reminderTask?.cancel(); reminderTask = nil
+        if reminderBackgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(reminderBackgroundTask)
+            reminderBackgroundTask = .invalid
         }
     }
 
@@ -164,6 +209,7 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         guard session.contains(action.callUUID), session.call?.isOutgoing == false,
               session.waitForAudio(action.callUUID) else { action.fail(); return }
+        if let id = session.call?.remoteID { clearReminder(id) }
         model?.beginSystemCall(action.callUUID)
         armTimeout(action.callUUID)
         do { try configureAudio(); action.fulfill() }
@@ -244,6 +290,7 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
 
     private func finish(_ uuid: UUID, reason: CXCallEndedReason, stopRemote: Bool, report: Bool = true) {
         guard let call = session.clear(uuid) else { return }
+        if let id = call.remoteID { clearReminder(id) }
         setupTimeout?.cancel(); setupTimeout = nil
         if report { provider.reportCall(with: uuid, endedAt: Date(), reason: reason) }
         model?.systemCallFinished(uuid, remoteID: call.remoteID, stopRemote: stopRemote)
@@ -256,6 +303,7 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
 
     func synchronize(_ status: CallStatus) {
         guard let call = session.call, let id = call.remoteID, status.available else { return }
+        if status.state != "ringing" || status.call_id != id { clearReminder(id) }
         if status.state == "idle" || (status.call_id != nil && status.call_id != id) { reportEnded() }
     }
 }
