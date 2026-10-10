@@ -50,6 +50,8 @@ VOICE_WEB_DATA_DIR=<私有中继目录> ./voice-web relay-revoke <授权ID>
 
 按 [relay-client.env.example](../deploy/unraid/examples/relay-client.env.example) 在自己的服务 env 配置中继完整 HTTPS 接口 URL 与私有凭据文件。两项都必须有效；只配一项会失败，不能降级为旧身份直接推送。未配置中继时保留自行签名者的直接 APNs 模式。
 
+服务0.1.4支持同一实例同时连接Sandbox和Production中继：通过`VOICE_WEB_PUSH_RELAY_URL_SANDBOX`／`VOICE_WEB_PUSH_RELAY_KEY_FILE_SANDBOX`和对应`_PRODUCTION`配置对，按手机登记的推送环境选择路径与凭据。某环境没有显式配置时兼容原默认配置对；显式配置不完整时拒绝推送，不借用默认凭据。开发包与TestFlight使用独立手机App Key，服务器持有独立中继后端Key，手机不保存中继Key。
+
 服务仍先筛选有效 App Key 关联的设备 token，再触发推送。撤销本地 App Key 后不再向该设备发起新推送。中继不持久保存设备 token 或每手机路由，不另建用户手机注册库；若后端整体失去信任，发布者撤销中继后端授权。
 
 ## 隐私、验证与回退
