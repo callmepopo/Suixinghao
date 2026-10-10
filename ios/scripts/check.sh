@@ -17,4 +17,6 @@ xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/Connection
 .build/checks/history-check
 xcrun swiftc -D DEBUG -module-cache-path .build/checks/module-cache Suixinghao/API.swift Suixinghao/ConnectionHistory.swift Suixinghao/ConnectionStore.swift scripts/sms-settings-check.swift -o .build/checks/sms-settings-check
 .build/checks/sms-settings-check
+xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/DialerInput.swift scripts/dialer-input-check.swift -o .build/checks/dialer-input-check
+.build/checks/dialer-input-check
 python3 scripts/version.py

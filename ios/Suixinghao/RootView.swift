@@ -44,7 +44,11 @@ struct PhoneView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var number = ""
+    @State private var dialInput = DialerInput()
+    private var number: String {
+        get { dialInput.number }
+        nonmutating set { dialInput.number = newValue }
+    }
     @State private var phoneContacts: [PhoneContact] = []
     @State private var contactMatches: [PhoneContact] = []
     @State private var selectedContact: String?
@@ -207,16 +211,16 @@ struct PhoneView: View {
                     Task { await loadContactsIfAllowed() }
                 }
                 .onChange(of: phase) { _, value in
-                    if value == .active {
-                        if !owned && model.status?.hasCall != true && !model.systemCallPreparing && model.externalDialNumber == nil {
-                            number = ""
-                            selectedContact = nil
-                            contactMatches = []
-                            keyFeedback = ""
-                            feedbackTask?.cancel()
-                        }
-                        Task { await loadContactsIfAllowed() }
+                    let inputPhase: DialerInput.Phase = value == .background ? .background : (value == .active ? .active : .inactive)
+                    if dialInput.transition(to: inputPhase,
+                                            callInProgress: owned || model.status?.hasCall == true || model.systemCallPreparing,
+                                            pendingExternalNumber: model.externalDialNumber != nil) {
+                        selectedContact = nil
+                        contactMatches = []
+                        keyFeedback = ""
+                        feedbackTask?.cancel()
                     }
+                    if value == .active { Task { await loadContactsIfAllowed() } }
                 }
                 .onChange(of: model.externalDialNumber) { _, incoming in
                     receiveExternalNumber(incoming)

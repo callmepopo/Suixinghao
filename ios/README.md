@@ -66,7 +66,7 @@ SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID SXH_ALLOW_PROVISIONING_UPDATES=1 ./scripts/arc
 
 ## 数据与隐私
 
-- 服务地址、App Key 及最近通话记录保存到 `ThisDeviceOnly` 本机钥匙串，不通过 iCloud 同步。新 Bundle ID 使用独立访问组。断开并更换服务清除连接配置；远端 Key 的撤销由服务管理者操作。
+- 服务地址、App Key 及最近通话记录保存到 `ThisDeviceOnly` 本机钥匙串，不通过 iCloud 同步。新 Bundle ID 使用独立访问组。断开保留最近连接配置以供手动重连；远端 Key 的撤销由服务管理者操作。
 - 通讯录匹配在本机内存进行，不上传整本通讯录。麦克风仅用于已授权通话，短信正文与会话不作为客户端持久缓存。
 - 连接历史保存于受保护且排除备份的本机应用数据目录；诊断事件在空闲且联网时上传到使用者配置的服务。通话和短信经该服务与运营商处理，服务端是否录音、如何保留短信与日志由该部署配置决定。
 - `Suixinghao/PrivacyInfo.xcprivacy` 声明文件时间戳 API 的 `C617.1` 原因：连接历史仅读取本 App 沙盒文件的时间戳和大小，用于日志合并和存储管理。[Apple 官方原因清单](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)
@@ -90,3 +90,7 @@ SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID SXH_ALLOW_PROVISIONING_UPDATES=1 ./scripts/arc
 ### 0.1.4 拨号页
 
 适配SE3等小屏：按可用空间收紧键盘，拨号按钮保持在底部导航上方；联系人区域按实际结果显示。空闲时重新进入App清空上次输入号码，通话中按键和主动选择号码保持原有流程。
+
+### 0.1.5 外部号码交接
+
+外部软件跳转传来的号码不再被前台激活事件清空。旧拨号输入在闲置进入后台时清理，通话中和待接收外部号码除外；只填入号码，由用户点击拨号。
