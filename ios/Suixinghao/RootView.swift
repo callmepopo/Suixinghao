@@ -43,6 +43,7 @@ struct RootView: View {
 struct PhoneView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var number = ""
     @State private var phoneContacts: [PhoneContact] = []
     @State private var contactMatches: [PhoneContact] = []
@@ -56,164 +57,167 @@ struct PhoneView: View {
     private var owned: Bool { model.ownedCallID != nil }
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 12) {
-                    HStack(spacing: 10) {
-                        Text("随行号").font(.system(size: 28, weight: .bold)).lineLimit(1)
-                        Spacer(minLength: 4)
-                        Label(model.connectionTitle,
-                              systemImage: model.demo ? "sparkles" : "antenna.radiowaves.left.and.right")
-                            .font(.caption).lineLimit(1).minimumScaleFactor(0.8)
-                            .foregroundStyle(model.statusFresh ? Color.teal : Color.secondary)
-                        if !model.demo {
-                            Button { Task { await model.refreshPhone() } } label: {
-                                Image(systemName: "arrow.clockwise").font(.headline).frame(width: 44, height: 44)
-                            }.buttonStyle(.plain).background(Color(.secondarySystemGroupedBackground), in: Circle())
-                                .disabled(model.restoringConnection || model.callBusy).accessibilityLabel("刷新状态")
-                        }
-                    }.frame(height: 52)
-                    if model.systemCallPreparing {
-                        VStack(spacing: 10) {
-                            ProgressView("正在建立随行号通话…")
-                            Button("取消通话", role: .destructive) { Task { await model.hangup() } }
-                                .buttonStyle(.bordered)
-                        }.padding()
-                    } else if model.status?.state == "ringing" && !owned {
-                        VStack(spacing: 12) {
-                            Image(systemName: "phone.connection.fill").font(.largeTitle).foregroundStyle(.teal)
-                            Text("模块收到来电").font(.title2.bold())
-                            Text(model.callerDisplayName ?? model.status?.caller ?? "号码未知").font(.title3).textSelection(.enabled)
-                            HStack {
-                                Button("拒接", role: .destructive) { Task { await model.hangup() } }.buttonStyle(.bordered)
-                                Button("接听") { Task { await model.answer() } }.buttonStyle(.borderedProminent)
-                            }.disabled(model.callBusy || model.restoringConnection || !model.statusFresh || model.demo)
-                        }.padding()
-                    } else if model.status?.hasCall == true {
-                        VStack(spacing: 10) {
-                            Text(owned ? (model.dialingStage.isEmpty ? (model.status?.title ?? "通话中") : model.dialingStage) : "其他客户端正在通话").font(.title2.bold())
-                            if let date = model.callStartedAt { Text(date, style: .timer).font(.title.monospacedDigit()) }
-                            if owned {
+            GeometryReader { viewport in
+                let compact = viewport.size.height < 650 || viewport.size.width < 390
+                let keySize = min(compact ? 60.0 : 72.0, max(44.0, (viewport.size.width - 76) / 3))
+                ScrollView {
+                    VStack(spacing: compact ? 8 : 12) {
+                        HStack(spacing: 10) {
+                            Text("随行号").font(.system(size: 28, weight: .bold)).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Label(model.connectionTitle,
+                                  systemImage: model.demo ? "sparkles" : "antenna.radiowaves.left.and.right")
+                                .font(.caption).lineLimit(1).minimumScaleFactor(0.8)
+                                .foregroundStyle(model.statusFresh ? Color.teal : Color.secondary)
+                            if !model.demo {
+                                Button { Task { await model.refreshPhone() } } label: {
+                                    Image(systemName: "arrow.clockwise").font(.headline).frame(width: 44, height: 44)
+                                }.buttonStyle(.plain).background(Color(.secondarySystemGroupedBackground), in: Circle())
+                                    .disabled(model.restoringConnection || model.callBusy).accessibilityLabel("刷新状态")
+                            }
+                        }.frame(height: compact ? 44 : 52)
+                        if model.systemCallPreparing {
+                            VStack(spacing: 10) {
+                                ProgressView("正在建立随行号通话…")
+                                Button("取消通话", role: .destructive) { Task { await model.hangup() } }
+                                    .buttonStyle(.bordered)
+                            }.padding()
+                        } else if model.status?.state == "ringing" && !owned {
+                            VStack(spacing: 12) {
+                                Image(systemName: "phone.connection.fill").font(.largeTitle).foregroundStyle(.teal)
+                                Text("模块收到来电").font(.title2.bold())
+                                Text(model.callerDisplayName ?? model.status?.caller ?? "号码未知").font(.title3).textSelection(.enabled)
                                 HStack {
-                                    Button { model.toggleMute() } label: { Label(model.muted ? "取消静音" : "静音", systemImage: model.muted ? "mic.slash.fill" : "mic.fill") }
-                                    Button { Task { await model.toggleSpeaker() } } label: { Label(model.speakerEnabled ? "听筒" : "扬声器", systemImage: "speaker.wave.2.fill") }
-                                }.buttonStyle(.bordered)
-                                #if DEBUG
-                                Text(model.audioDiagnostics)
-                                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                #endif
-                                Button("挂断", role: .destructive) { Task { await model.hangup() } }.buttonStyle(.borderedProminent).disabled(model.callBusy)
-                            }
-                        }.padding()
-                    }
-                    HStack(spacing: 8) {
-                        if !owned {
-                            Button { showingHistory = true } label: {
-                                Image(systemName: "clock.arrow.circlepath").frame(width: 44, height: 44)
-                            }
-                            .buttonStyle(.plain).accessibilityLabel("通话记录")
-                        }
-                        Text(owned ? "通话按键" : (number.isEmpty ? "输入号码" : number))
-                            .font(.system(size: number.isEmpty ? 22 : 30, weight: .medium, design: .rounded))
-                            .lineLimit(1).minimumScaleFactor(0.5)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                        if !owned {
-                            Button {
-                                number.removeLast(); selectedContact = nil; updateMatches()
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            } label: {
-                                Image(systemName: "delete.left").frame(width: 48, height: 44)
-                            }
-                            .buttonStyle(.plain).disabled(number.isEmpty)
-                            .opacity(number.isEmpty ? 0 : 1)
-                            .accessibilityLabel("删除一位")
-                        }
-                    }.frame(height: 44)
-                        .overlay(alignment: .topLeading) {
-                            if !keyFeedback.isEmpty {
-                                Text(keyFeedback).font(.caption2).foregroundStyle(.teal)
-                                    .lineLimit(1).offset(y: -10)
-                                    .accessibilityAddTraits(.updatesFrequently)
-                            }
-                        }
-                    if !owned {
-                        VStack(spacing: 0) {
-                            if let selectedContact {
-                                HStack { Image(systemName: "person.crop.circle"); Text(selectedContact); Spacer() }
-                                    .font(.subheadline).foregroundStyle(.teal).padding(.horizontal, 12).frame(height: 36)
-                            } else {
-                                ForEach(contactMatches) { contact in
-                                    Button {
-                                        number = contact.dialableNumber
-                                        selectedContact = contact.name
-                                        contactMatches = []
-                                    } label: {
-                                        HStack {
-                                            Image(systemName: "person.crop.circle").foregroundStyle(.teal)
-                                            Text(contact.name).lineLimit(1)
-                                            Spacer()
-                                            Text(contact.number).foregroundStyle(.secondary).lineLimit(1)
-                                        }.font(.subheadline).padding(.horizontal, 12).frame(height: 36)
-                                    }.buttonStyle(.plain)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }.frame(height: 108).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                    }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 3), spacing: 10) {
-                        ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
-                            Button {
+                                    Button("拒接", role: .destructive) { Task { await model.hangup() } }.buttonStyle(.bordered)
+                                    Button("接听") { Task { await model.answer() } }.buttonStyle(.borderedProminent)
+                                }.disabled(model.callBusy || model.restoringConnection || !model.statusFresh || model.demo)
+                            }.padding()
+                        } else if model.status?.hasCall == true {
+                            VStack(spacing: 10) {
+                                Text(owned ? (model.dialingStage.isEmpty ? (model.status?.title ?? "通话中") : model.dialingStage) : "其他客户端正在通话").font(.title2.bold())
+                                if let date = model.callStartedAt { Text(date, style: .timer).font(.title.monospacedDigit()) }
                                 if owned {
-                                    showKeyFeedback("按键 \(key) 发送中")
-                                    Task { showKeyFeedback(await model.dtmf(key) ? "按键 \(key) 已发送" : "按键未发送", haptic: false) }
-                                } else if number.count < 16 {
-                                    number += key; selectedContact = nil; updateMatches()
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    HStack {
+                                        Button { model.toggleMute() } label: { Label(model.muted ? "取消静音" : "静音", systemImage: model.muted ? "mic.slash.fill" : "mic.fill") }
+                                        Button { Task { await model.toggleSpeaker() } } label: { Label(model.speakerEnabled ? "听筒" : "扬声器", systemImage: "speaker.wave.2.fill") }
+                                    }.buttonStyle(.bordered)
+                                    #if DEBUG
+                                    Text(model.audioDiagnostics)
+                                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                    #endif
+                                    Button("挂断", role: .destructive) { Task { await model.hangup() } }.buttonStyle(.borderedProminent).disabled(model.callBusy)
                                 }
-                            } label: {
-                                VStack(spacing: 0) {
-                                    Text(key).font(.system(size: 28, weight: .regular, design: .rounded))
-                                    Text(keyLetters[index]).font(.system(size: 9, weight: .medium)).tracking(1)
-                                }.frame(width: 72, height: 72).background(Color(.secondarySystemGroupedBackground), in: Circle())
-                            }.foregroundStyle(.primary)
-                                .disabled(model.callBusy || (owned && model.status?.state != "active"))
-                                .onLongPressGesture { if key == "0" && !owned && number.isEmpty { number = "+"; updateMatches() } }
+                            }.padding()
                         }
-                    }
-                    if model.status?.hasCall != true && !model.systemCallPreparing {
-                        GeometryReader { geometry in
-                            HStack(spacing: 10) {
-                                Button { Task { await dialWithSystem() } } label: {
-                                    Label("系统拨号", systemImage: "iphone")
-                                        .font(.subheadline.bold()).frame(width: (geometry.size.width - 10) / 3, height: 54)
-                                }.buttonStyle(.plain)
-                                    .background(Color(.secondarySystemGroupedBackground), in: Capsule())
-                                    .disabled(model.callBusy || handingOffSystemCall || number.isEmpty)
-                                Button { Task { await model.dial(number) } } label: {
-                                    Label("随行号拨号", systemImage: "phone.fill")
-                                        .font(.headline).frame(maxWidth: .infinity).frame(height: 54)
-                                }.buttonStyle(.plain).foregroundStyle(.white)
-                                    .background(Color.accentColor, in: Capsule())
-                                    .disabled(model.demo || model.restoringConnection || model.callBusy || handingOffSystemCall || number.isEmpty || !model.statusFresh)
-                                    .opacity(model.demo || model.restoringConnection || model.callBusy || number.isEmpty || !model.statusFresh ? 0.45 : 1)
+                        HStack(spacing: 8) {
+                            if !owned {
+                                Button { showingHistory = true } label: {
+                                    Image(systemName: "clock.arrow.circlepath").frame(width: 44, height: 44)
+                                }
+                                .buttonStyle(.plain).accessibilityLabel("通话记录")
                             }
-                        }.frame(height: 54)
+                            Text(owned ? "通话按键" : (number.isEmpty ? "输入号码" : number))
+                                .font(.system(size: number.isEmpty ? 22 : 30, weight: .medium, design: .rounded))
+                                .lineLimit(1).minimumScaleFactor(0.5)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            if !owned {
+                                Button {
+                                    number.removeLast(); selectedContact = nil; updateMatches()
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                } label: {
+                                    Image(systemName: "delete.left").frame(width: 48, height: 44)
+                                }
+                                .buttonStyle(.plain).disabled(number.isEmpty)
+                                .opacity(number.isEmpty ? 0 : 1)
+                                .accessibilityLabel("删除一位")
+                            }
+                        }.frame(height: 44)
+                            .overlay(alignment: .topLeading) {
+                                if !keyFeedback.isEmpty {
+                                    Text(keyFeedback).font(.caption2).foregroundStyle(.teal)
+                                        .lineLimit(1).offset(y: -10)
+                                        .accessibilityAddTraits(.updatesFrequently)
+                                }
+                            }
+                        if !owned && (selectedContact != nil || !contactMatches.isEmpty) {
+                            VStack(spacing: 0) {
+                                if let selectedContact {
+                                    HStack { Image(systemName: "person.crop.circle"); Text(selectedContact); Spacer() }
+                                        .font(.subheadline).foregroundStyle(.teal).padding(.horizontal, 12).frame(height: 36)
+                                } else {
+                                    ForEach(contactMatches) { contact in
+                                        Button {
+                                            number = contact.dialableNumber
+                                            selectedContact = contact.name
+                                            contactMatches = []
+                                        } label: {
+                                            HStack {
+                                                Image(systemName: "person.crop.circle").foregroundStyle(.teal)
+                                                Text(contact.name).lineLimit(1)
+                                                Spacer()
+                                                Text(contact.number).foregroundStyle(.secondary).lineLimit(1)
+                                            }.font(.subheadline).padding(.horizontal, 12).frame(height: 36)
+                                        }.buttonStyle(.plain)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }.frame(height: selectedContact != nil ? 36 : CGFloat(contactMatches.count) * 36).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: compact ? 12 : 18), count: 3), spacing: compact ? 8 : 10) {
+                            ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
+                                Button {
+                                    if owned {
+                                        showKeyFeedback("按键 \(key) 发送中")
+                                        Task { showKeyFeedback(await model.dtmf(key) ? "按键 \(key) 已发送" : "按键未发送", haptic: false) }
+                                    } else if number.count < 16 {
+                                        number += key; selectedContact = nil; updateMatches()
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    }
+                                } label: {
+                                    VStack(spacing: 0) {
+                                        Text(key).font(.system(size: 28, weight: .regular, design: .rounded))
+                                        Text(keyLetters[index]).font(.system(size: 9, weight: .medium)).tracking(1)
+                                    }.frame(width: keySize, height: keySize).background(Color(.secondarySystemGroupedBackground), in: Circle())
+                                }.foregroundStyle(.primary)
+                                    .disabled(model.callBusy || (owned && model.status?.state != "active"))
+                                    .onLongPressGesture { if key == "0" && !owned && number.isEmpty { number = "+"; updateMatches() } }
+                            }
+                        }
+                        if let hangup = model.hangupMessage { Text(hangup).font(.footnote).foregroundStyle(.orange) }
+                        if !model.dialingStage.isEmpty && model.status?.hasCall != true { Text(model.dialingStage).font(.footnote).foregroundStyle(.teal) }
+                        Text(model.demo ? "连接自己的服务后即可使用。演示模式不会拨号。" : (model.restoringConnection ? "正在恢复电话连接，短信将在随后加载。" : "连接恢复后即可拨号，已接通的通话可以熄屏继续。"))
+                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        #if DEBUG
+                        Text(model.externalCallRoute).font(.caption2).foregroundStyle(.secondary)
+                        #endif
+                        if model.status?.recording == true { Label("服务端已开启通话录音", systemImage: "record.circle").font(.footnote).foregroundStyle(.secondary) }
+                    }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 16)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if model.status?.hasCall != true && !model.systemCallPreparing {
+                        dialActions
+                            .padding(.horizontal, 20).padding(.vertical, 10)
+                            .background(Color(.systemGroupedBackground))
                     }
-                    if let hangup = model.hangupMessage { Text(hangup).font(.footnote).foregroundStyle(.orange) }
-                    if !model.dialingStage.isEmpty && model.status?.hasCall != true { Text(model.dialingStage).font(.footnote).foregroundStyle(.teal) }
-                    Text(model.demo ? "连接自己的服务后即可使用。演示模式不会拨号。" : (model.restoringConnection ? "正在恢复电话连接，短信将在随后加载。" : "连接恢复后即可拨号，已接通的通话可以熄屏继续。"))
-                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    #if DEBUG
-                    Text(model.externalCallRoute).font(.caption2).foregroundStyle(.secondary)
-                    #endif
-                    if model.status?.recording == true { Label("服务端已开启通话录音", systemImage: "record.circle").font(.footnote).foregroundStyle(.secondary) }
-                }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 16)
+                }
             }.background(Color(.systemGroupedBackground)).toolbar(.hidden, for: .navigationBar)
                 .task { await loadContactsIfAllowed() }
                 .onAppear {
                     receiveExternalNumber(model.externalDialNumber)
                     Task { await loadContactsIfAllowed() }
                 }
-                .onChange(of: phase) { _, value in if value == .active { Task { await loadContactsIfAllowed() } } }
+                .onChange(of: phase) { _, value in
+                    if value == .active {
+                        if !owned && model.status?.hasCall != true && !model.systemCallPreparing && model.externalDialNumber == nil {
+                            number = ""
+                            selectedContact = nil
+                            contactMatches = []
+                            keyFeedback = ""
+                            feedbackTask?.cancel()
+                        }
+                        Task { await loadContactsIfAllowed() }
+                    }
+                }
                 .onChange(of: model.externalDialNumber) { _, incoming in
                     receiveExternalNumber(incoming)
                 }
@@ -225,6 +229,26 @@ struct PhoneView: View {
                         showingHistory = false
                     }
                 }
+        }
+    }
+    private var dialActions: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            Button { Task { await dialWithSystem() } } label: {
+                Label("系统拨号", systemImage: "iphone")
+                    .font(.subheadline.bold()).frame(maxWidth: .infinity, minHeight: 54)
+            }.buttonStyle(.plain)
+                .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+                .disabled(model.callBusy || handingOffSystemCall || number.isEmpty)
+            Button { Task { await model.dial(number) } } label: {
+                Label("随行号拨号", systemImage: "phone.fill")
+                    .font(.headline).frame(maxWidth: .infinity, minHeight: 54)
+            }.buttonStyle(.plain).foregroundStyle(.white)
+                .background(Color.accentColor, in: Capsule())
+                .disabled(model.demo || model.restoringConnection || model.callBusy || handingOffSystemCall || number.isEmpty || !model.statusFresh)
+                .opacity(model.demo || model.restoringConnection || model.callBusy || number.isEmpty || !model.statusFresh ? 0.45 : 1)
         }
     }
     @MainActor private func dialWithSystem() async {
