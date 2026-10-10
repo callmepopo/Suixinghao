@@ -4,7 +4,7 @@
 
 将家里的蜂窝通信模块接入自建服务，在 iPhone 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-> **当前公开源码：App 0.1.3／服务端 0.1.3。** 短信删除、断开保留配置与重连、设置三类布局已由维护者确认验收通过。 开发包已实测锁屏来电提醒、接听、双向声音及后台通话。App Store 正式构建已上传，尚未提交审核，目前没有商店下载链接。锁屏接听后的系统免提会自动回退，作为已知问题保留；App 内扬声器切换此前已验证正常。Production／TestFlight 推送仍需独立验证。
+> **当前公开 App 源码：0.1.5。** 外部软件拨号跳转号码交接修复已在15Pro开发包验证通过；SE3最新正式候选另验。0.1.4的SE3正式TestFlight本轮已确认通过，双机接听协调与Apple Watch提醒延期。App Store尚未提交审核，目前没有商店下载链接。锁屏接听后的系统免提自动回退作为已知问题保留；App内扬声器切换此前已验证正常。服务端独立编号，以各分支的 `server/Version.xcconfig` 为准。
 
 [部署指南](deploy/unraid/README.md) · [iOS 客户端](ios/README.md) · [接口规范](docs/API.md) · [已知限制](docs/limitations.md) · [问题反馈](https://github.com/callmepopo/Suixinghao/issues)
 
