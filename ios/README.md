@@ -12,7 +12,7 @@
 
 主要功能：电话拨打、接听、挂断、DTMF、静音与音频路由；短信列表、会话及发送；本机联系人匹配、通话记录、断线恢复和连接历史。手机 SIM 系统拨号与远端模块拨号是不同线路。
 
-锁屏来电依赖 PushKit、CallKit、APNs 和配套服务配置。官方 App Store 包的推送属于发布者的 App 身份，自建部署者自己的 Apple Key 无法给官方包直接推送；发布者私钥不能分发。公开源码保留客户端与直连 APNs 的实现，公共推送中继已有独立Production／Sandbox实现与部署，开发包Sandbox锁屏已验，Production／TestFlight待验。自行签名者需使用自己的 App ID、签名、推送凭据及相匹配的服务配置。不得将模拟器构建记为真机或锁屏通过。
+锁屏来电依赖 PushKit、CallKit、APNs 和配套服务配置。官方 App Store 包的推送属于发布者的 App 身份，自建部署者自己的 Apple Key 无法给官方包直接推送；发布者私钥不能分发。公开源码保留客户端与直连 APNs 的实现，公共推送中继已有独立Production／Sandbox实现与部署，开发包Sandbox锁屏已验，正式0.1.8/build37已获SE3 TestFlight整体真机验收确认，其他设备和延期项另验。自行签名者需使用自己的 App ID、签名、推送凭据及相匹配的服务配置。不得将模拟器构建记为真机或锁屏通过。
 
 号码规则目前对 11 位国内手机号补 `+86`；国际号码需以 `+` 和国家码输入。中国短号、座机、400/800 支持属于现有逻辑，不能据此宣称美区本地号码、美国硬件或所有运营商均已验证。
 
@@ -117,4 +117,6 @@ App内扬声器／听筒切换只调整既有AVAudioSession输出路由，保留
 
 ### 0.1.8正式TestFlight（2026-10-11）
 
-同产品版本正式build37以干净main/dc6844e及候选标签app-v0.1.8-rc-build37构建，Release分发签名、Production推送与默认通话权限通过；Apple处理VALID，既有内部测试组状态IN_BETA_TESTING。开发build36保留原来源。正式Production锁屏、双向声音、音频路由、手表提醒及短信仍待真机复验；本次不提交App Store审核，既有0.1.5/build32保持。
+同产品版本正式build37以干净main/dc6844e及候选标签app-v0.1.8-rc-build37构建，Release分发签名、Production推送与默认通话权限通过；Apple处理VALID，既有内部测试组状态IN_BETA_TESTING。开发build36保留原来源。正式包已获SE3用户整体真机验收确认，未提供逐项日志；15Pro、Apple Watch提醒／清理及既有延期项另验；用户随后追加授权，同日已将同一0.1.8/build37提交App Store再次审核及TestFlight外部测试审核，提交后均等待审核，尚未批准或上架。
+
+2026-10-12核验：0.1.8/build37的TestFlight外部审核已通过（APPROVED），外部构建为IN_BETA_TESTING；App Store仍为WAITING_FOR_REVIEW，尚未上架。GitHub Release app-v0.1.8对应同一正式build37及原始干净来源dc6844e，历史Release保留；文档更新不重建软件或回改构建来源。

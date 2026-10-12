@@ -55,7 +55,9 @@ App Store 的设备适配与处理会改变分发包，不能把用户下载包�
 
 ## 商店更新节奏（2026-10-10起）
 
-日常已验收更新继续同步GitHub；App Store按周汇总变更，制作正式候选和提交前另行讨论确认。0.1.6／0.1.7及0.1.8拨号页面完成日常源码同步。后续用户于2026-10-10明确授权上传0.1.8 TestFlight，使用同产品版本的新正式构建build37；本次不提交App Store审核，既有0.1.5/build32审核保持。每周节奏不代表自动创建定时任务或未经确认自动提交；正式候选仍按本文件的签名、来源和Production验收流程执行。
+日常已验收更新继续同步GitHub；App Store按周汇总变更，制作正式候选和提交前另行讨论确认。0.1.6／0.1.7及0.1.8拨号页面完成日常源码同步。后续用户于2026-10-10明确授权上传0.1.8 TestFlight，使用同产品版本的新正式构建build37；该次授权仅限TestFlight上传；2026-10-11另获双审核提交授权，结果见下方当前状态。每周节奏不代表自动创建定时任务或未经确认自动提交；正式候选仍按本文件的签名、来源和Production验收流程执行。
 
 
-2026-10-11：用户追加授权的0.1.8/build37正式候选已上传TestFlight。干净来源dc6844e、候选标签app-v0.1.8-rc-build37；分发签名、Production权限及Apple VALID处理核验通过，既有内部组IN_BETA_TESTING。正式包真机验收待完成；未提交App Store审核，原0.1.5/build32审核版本不替换。候选来源固定在该标签，后续文档提交不回改产物来源；未完成独立构建attestation。
+2026-10-11：用户追加授权的0.1.8/build37正式候选已上传TestFlight。干净来源dc6844e、候选标签app-v0.1.8-rc-build37；分发签名、Production权限及Apple VALID处理核验通过，既有内部组IN_BETA_TESTING。正式包已获SE3用户整体真机验收确认，逐项日志未提供；15Pro、Apple Watch及既有延期项不在本次确认范围。用户同日追加授权，已通过Safari将商店版本及构建更新至0.1.8/build37并再次提交；同一构建已提交TestFlight外部审核。Apple读回分别为WAITING_FOR_REVIEW与WAITING_FOR_BETA_REVIEW，尚未批准或上架。候选来源固定在该标签，后续文档提交不回改产物来源；未完成独立构建attestation。
+
+2026-10-12核验：0.1.8/build37的TestFlight外部审核已通过（APPROVED），外部构建为IN_BETA_TESTING；App Store仍为WAITING_FOR_REVIEW，尚未上架。GitHub Release app-v0.1.8对应同一正式build37及原始干净来源dc6844e，历史Release保留；文档更新不重建软件或回改构建来源。
