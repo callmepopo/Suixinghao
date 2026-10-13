@@ -39,3 +39,6 @@ GOCACHE="$PWD/.build/go-cache" VOICE_WEB_ADDR=127.0.0.1:17581 go run . serve-pag
 ## 发布者推送中继模式
 
 同一二进制的 `relay` 命令只启动受限中继，不启动电话／短信轮询或模块工作线程。`relay-issue`／`relay-revoke` 管理每后端独立授权。用户服务配置中继后转发固定VoIP／短信事件，未配置时保留自行签名者直接APNs模式。详见 [中继部署与契约](../docs/push-relay.md)。候选尚未部署、实发或完成锁屏验收。
+
+
+服务0.1.5增加受控自动绑定与授权台账：NAS管理接口在relay_setup.go，VPS流程在relay_enrollment.go，官方应用验证在app_attest.go，使用系统Go密码库及嵌入的Apple公共根证书，无新增Go依赖。relay-export仅在管理员本机写新私有文件，不开放管理HTTP。部署、32KiB反代上限与环境参数见[中继说明](../docs/push-relay.md)。

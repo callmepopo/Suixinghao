@@ -612,6 +612,7 @@ struct SettingsView: View {
                     Text("填写服务 HTTPS 根地址和独立 App Key。断开后保留最近一次地址和 Key，点击连接并验证即可恢复。电话授权用于通话麦克风和锁屏接听。")
                 }
                 Section("当前状态") {
+                    LabeledContent("App版本", value: "\(AppVersion.current)（\(AppVersion.build)）")
                     Label(model.connectionTitle, systemImage: model.connected ? "checkmark.circle.fill" : "link").foregroundStyle(.teal)
                     if !model.connected { Text(model.manuallyDisconnected ? "已断开，连接配置已保留。" : model.connectionMessage).font(.footnote).foregroundStyle(.secondary) }
                     LabeledContent("电话服务", value: model.connected ? (model.status?.title ?? "待刷新") : "未连接")
@@ -640,6 +641,20 @@ struct SettingsView: View {
                         #endif
                     }
                 }
+                Section("锁屏推送") {
+                    LabeledContent("手机推送登记", value: model.voipRegistrationState)
+                    Text(model.pushSetupMessage).font(.footnote)
+                    if let setup = model.pushSetup, setup.state == "pending" {
+                        if let name = setup.name { LabeledContent("NAS 登记昵称", value: name) }
+                        Button(model.enrollingPush ? "正在验证并开通…" : "确认为此 NAS 开通推送") {
+                            Task { await model.confirmPushSetup() }
+                        }.disabled(model.enrollingPush)
+                    }
+                    Button("刷新推送状态") { Task { await model.refreshPushStatus() } }
+                        .disabled(!model.connected || model.enrollingPush)
+                    Text("先在 NAS 管理页申请，再由本机确认。自动开通会向发布者登记昵称、随机服务实例和应用验证信息，不要求真实姓名或邮箱。授权和手机登记成功后，仍需验证真实锁屏来电。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section {
                     NavigationLink { ConnectionHistoryView() } label: { Label("连接历史", systemImage: "clock.arrow.circlepath") }
                         .disabled(!model.connected)
@@ -650,7 +665,7 @@ struct SettingsView: View {
                 .toolbar { NavigationLink("关于") { Form {
                 Section("数据与推送") {
                     Text("通讯录只在本机匹配。电话和短信连接你配置的服务器；录音是否开启由该服务器决定，请在通话前告知参与者。")
-                    Text("系统来电与短信提醒由 Apple 投递。若服务器启用官方推送中继，发布者会临时处理设备推送标识和随机来电标识，不接收电话音频、号码或短信正文。")
+                    Text("系统来电与短信提醒由 Apple 投递。推送中继临时处理设备推送标识和随机来电标识；自动开通另保存登记昵称、随机服务实例、应用验证标识和授权记录，不接收电话音频、号码或短信正文。")
                 }
                 .font(.footnote)
                 Section("关于随行号") {

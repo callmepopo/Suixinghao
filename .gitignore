@@ -33,6 +33,8 @@
 *.p12
 *.pfx
 *.pem
+# Public Apple App Attest trust anchor, not a private signing asset.
+!server/apple-app-attest-root.pem
 *.key
 *.mobileprovision
 *.ipa

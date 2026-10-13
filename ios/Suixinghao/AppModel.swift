@@ -18,6 +18,7 @@ final class AppModel {
     var connectionHistory: ConnectionHistory?
     var localConnectionEvents: [ConnectionEvent] = []
     var localConnectionSummary: ConnectionSummary?
+    var currentObservationSeconds: Double?
     var pendingConnectionEvents = 0
     var connectionHistoryMessage = ""
     var loadingConnectionHistory = false
@@ -51,6 +52,10 @@ final class AppModel {
     var callStartedAt: Date?
     var statusFresh = false
     var smsNotificationState = "未开启"
+    var voipRegistrationState = "等待手机推送登记"
+    var pushSetup: PushSetup?
+    var pushSetupMessage = "连接服务后可查看"
+    var enrollingPush = false
     var openSMSFromNotification = false
     var externalDialNumber: String?
     #if DEBUG
@@ -234,6 +239,7 @@ final class AppModel {
                     do { try await self.reloadContent() }
                     catch { if !Task.isCancelled && self.epoch == run { self.notice = "电话状态已恢复，短信加载失败，请稍后刷新。" } }
                     await registration
+                    await self.refreshPushSetup()
                     guard !Task.isCancelled, self.epoch == run else { return }
                     await self.enableSMSNotifications()
                 }
@@ -625,14 +631,54 @@ final class AppModel {
     }
     private func registerVoIPToken() async {
         guard let base, connected, let token = voip?.token else { return }
+        let run = epoch
         #if DEBUG
         let environment = "sandbox"
         #else
         let environment = "production"
         #endif
-        _ = try? await api.request(base, path: "voice-test/app/voip-token", token: smsToken,
-                                   body: ["token": token, "environment": environment])
+        do {
+            _ = try await api.request(base, path: "voice-test/app/voip-token", token: smsToken,
+                                       body: ["token": token, "environment": environment])
+            if epoch == run { voipRegistrationState = "手机推送已登记" }
+        } catch { if epoch == run { voipRegistrationState = "手机推送登记失败，请刷新重试" } }
     }
+    func refreshPushSetup() async {
+        guard let base, connected, !demo else { pushSetup = nil; pushSetupMessage = "连接服务后可查看"; return }
+        let run = epoch
+        do {
+            let setup = try await api.read(PushSetup.self, base: base, path: "voice-test/app/push-setup", token: smsToken,
+                query: [URLQueryItem(name: "environment", value: PushEnrollment.environment)], timeout: 5)
+            guard epoch == run else { return }
+            try PushEnrollment.recoverConfirmation(keyID: setup.confirmed_app_key)
+            pushSetup = setup; pushSetupMessage = setup.title
+        } catch {
+            guard epoch == run else { return }
+            pushSetup = nil; pushSetupMessage = "推送开通状态暂不可用，请核对服务版本和配置"
+        }
+    }
+    func confirmPushSetup() async {
+        guard !enrollingPush, let base, connected, let setup = pushSetup,
+              setup.state == "pending", let binding = setup.binding_id, let challenge = setup.challenge else { return }
+        enrollingPush = true
+        defer { enrollingPush = false }
+        let run = epoch
+        do {
+            let proof = try await PushEnrollment.proof(challenge: challenge)
+            guard epoch == run, connected else { return }
+            try await api.confirmPush(base: base, token: smsToken, binding: binding,
+                                      proof: proof, environment: PushEnrollment.environment)
+            try PushEnrollment.confirmed()
+            guard epoch == run else { return }
+            await registerVoIPToken(); await refreshPushSetup()
+        } catch {
+            if epoch == run {
+                await refreshPushSetup()
+                pushSetupMessage = (error as? APIError)?.message ?? "官方应用验证未完成，请稍后重试"
+            }
+        }
+    }
+    func refreshPushStatus() async { await registerVoIPToken(); await refreshPushSetup() }
     func enableSMSNotifications() async {
         let center = UNUserNotificationCenter.current()
         do {
@@ -939,6 +985,7 @@ final class AppModel {
         guard telemetry.scope == scope else { return }
         localConnectionEvents = Array(local.events.reversed().filter { $0.kind != "observation" }.prefix(200))
         localConnectionSummary = .phone(events: local.events, now: Date().timeIntervalSince1970)
+        currentObservationSeconds = ConnectionHistory.currentObservation(events: local.events, now: Date().timeIntervalSince1970)
         pendingConnectionEvents = local.pending
         if local.failed { connectionHistoryMessage = "本机历史保存失败；现有文件保留，通话不受影响。"; return }
         guard canSyncHistory, let base else {
@@ -1321,6 +1368,8 @@ final class AppModel {
         if let base { try? await api.delete(base, path: "voice-test/app/sms-push-token", token: smsToken) }
         telemetry.disconnect()
         connectionHistory = nil; localConnectionSummary = nil; localConnectionEvents = []; pendingConnectionEvents = 0
+        currentObservationSeconds = nil; pushSetup = nil
+        pushSetupMessage = "连接服务后可查看"; voipRegistrationState = "尚未连接，未登记"
         if let base, !voiceToken.isEmpty { _ = try? await api.request(base, path: "voice-test/logout", token: voiceToken, body: [:]) }
         smsToken = ""; voiceToken = ""; base = nil; voiceExpires = .distantPast
         contacts = []; devices = []; status = nil; connected = false; demo = true; endpoint = ""; statusFresh = false

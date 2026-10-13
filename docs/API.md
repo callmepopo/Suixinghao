@@ -172,3 +172,13 @@ v2在audio_stats中增加events（每窗口最多16条）与level。事件只允
 - DELETE `/app/sms/messages/{id}`：正整数记录ID，成功200，透传上游删除结果；只允许该固定路径。
 - DELETE `/app/sms/thread?iccid=<card>&peer=<peer>`：成功200，删除对应SIM/对方的全部历史。iccid、imsi、device_id必须且只能提供一个，不允许无SIM选择器删除；建议使用iccid。peer必填。
 - 未授权401/403、错误ID或缺失/冲突选择器400、错误方法405、上游失败保留状态并使用固定错误正文。App Key仅作为入口鉴权，转发使用后台独立会话。删除不调用硬件AT，不撤回已发送短信。
+
+
+## 官方推送开通（服务0.1.5）
+
+- `GET /voice-test/app/push-setup?environment=production|sandbox`：有效App Key查询开通状态；返回state、登记昵称、环境、授权ID／期限，以及待绑定时的binding_id和challenge。可返回本实例已确认的App证明key ID供恢复确认；不返回NAS私钥或中继凭据。
+- `POST`同App路径：仅 `action=confirm`，含binding_id和proof（key_id、object为Base64，assertion为布尔值）。App Key必须有效，绑定必须由NAS管理员预先申请且未过期。
+- `GET /voice-test/push-setup?environment=...`：仅网页管理员会话查询；App电话会话不得管理。
+- `POST`管理员路径：`{"action":"begin","name":"登记昵称"}`申请，或 `{"action":"unbind"}`解除自动授权。已有手工路径显示manual，申请返回409，不隐式迁移。
+- 状态：not_enabled／pending／binding_expired／authorized／expired／revoked／manual。authorized仅表示NAS已取得授权，手机推送登记和真实送达须分别验收。
+- 中继 `POST /push-relay/v1/bind|confirm|claim|renew|unbind` 使用签名NAS信封，不使用手机App Key；confirm另含App Attest证明。严格JSON、最大32KiB、签名时间窗口60秒、nonce不可重放。401签名无效；403证明失败或撤销；409重放／冲突；410请求过期；429限额；503未启用或存储不可用。细节见[中继说明](push-relay.md)。

@@ -35,8 +35,13 @@ func relayRoute(environment string) (string, string, error) {
 		endpoint = os.Getenv("VOICE_WEB_PUSH_RELAY_URL")
 		credential = os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE")
 	}
-	if endpoint == "" || credential == "" {
+	if endpoint == "" {
 		return "", "", errors.New("incomplete relay route")
+	}
+	if credential == "" {
+		if _, err := automaticRelayCredential(environment, endpoint); err != nil {
+			return "", "", errors.New("incomplete relay route")
+		}
 	}
 	return endpoint, credential, nil
 }
@@ -52,11 +57,19 @@ func forwardRelay(ctx context.Context, input relayPush) (int, string, error) {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return 0, "", errors.New("invalid relay HTTPS endpoint")
 	}
-	b, err := os.ReadFile(credential)
-	if err != nil {
-		return 0, "", errors.New("relay credential unavailable")
+	key := ""
+	if credential != "" {
+		b, err := os.ReadFile(credential)
+		if err != nil {
+			return 0, "", errors.New("relay credential unavailable")
+		}
+		key = strings.TrimSpace(string(b))
+	} else {
+		key, err = automaticRelayCredential(input.Environment, endpoint)
+		if err != nil {
+			return 0, "", err
+		}
 	}
-	key := strings.TrimSpace(string(b))
 	if relayCredential("Bearer "+key) == "" {
 		return 0, "", errors.New("invalid relay credential")
 	}

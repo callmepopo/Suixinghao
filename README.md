@@ -35,7 +35,7 @@
 1. 阅读 [硬件与依赖](docs/hardware.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。只有已验证环境可以按本方案使用；驱动包由原来源取得，本仓库不分发固件或驱动二进制。
 2. 按 [Unraid 部署说明](deploy/unraid/README.md) 配置 HiDeck、服务和 HTTPS 反代。模板中的凭据均由部署者自行设置。
 3. 在 `https://voice.example.org/voice-test/` 测试网页电话；通过 `/voice-test/app-access/` 登录并签发一把设备专用 App Key。
-4. 按 [iOS 构建说明](ios/README.md) 构建新客户端，填写根地址 `https://voice.example.org` 和自己的 Key。地址不要包含 `/voice-test/`，也不是 Unraid 管理接口。
+4. 安装发布者提供的官方App（自行签名者参考[iOS构建说明](ios/README.md)），填写根地址 `https://voice.example.org` 和自己的 Key。地址不要包含 `/voice-test/`，也不是 Unraid 管理接口。
 
 只检查源码、预览页面不需要硬件，参见 [服务端说明](server/README.md) 和 [iOS 说明](ios/README.md)。正式部署涉及设备和驱动写入，务必先核对支持环境并按分步说明执行。
 
@@ -73,3 +73,6 @@ App 不内置个人服务地址或 Key，Key 保存在本机钥匙串；服务�
 本仓库自有代码采用 [MIT](LICENSE)。**HiDeck 的 PolyForm Noncommercial 许可和第三方驱动许可独立适用；MIT 不代表整套依赖允许商用。** 本项目不是 DJI、HiDeck、MaVo 或 Unraid 的官方产品。
 
 贡献方式见 [CONTRIBUTING](CONTRIBUTING.md)，安全反馈见 [SECURITY](SECURITY.md)，变更见 [CHANGELOG](CHANGELOG.md)。提交问题时仅使用合成数据，删除号码、短信、设备标识和凭据。
+
+
+开发候选App0.1.9／服务0.1.5增加官方推送自动开通：用户自行部署兼容NAS及HTTPS入口，在NAS管理页申请、App设置页确认，服务器自动领取／续期，无需用户VPS或开发者账号。发布者必须先启用App Attest核验；旧手工凭据仍兼容。签发台账、身份数据和验证层级见[推送中继](docs/push-relay.md)。正式TestFlight与网友真机结果另行记录，不将开发候选视为已发布版本。

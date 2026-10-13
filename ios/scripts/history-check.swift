@@ -17,6 +17,10 @@ import Foundation
         let gap = ConnectionSummary.phone(events: [event(now-300,"offline"),event(now-100,"online")], now: now)
         require(gap.offline_seconds == 90 && gap.online_seconds == 90 && gap.unknown_seconds == 86220, "suspension must expire observations")
         require(ConnectionSummary.phone(events: [],now: now).online_rate == nil, "empty history must not imply availability")
+        let resumed = [event(now-3600,"online"),event(now-3540,"online"),event(now-3500,"unknown","observer_stop"),event(now-60,"unknown","observer_start"),event(now-50,"online","connected")]
+        let resumedSummary = ConnectionSummary.phone(events: resumed, now: now)
+        require(resumedSummary.online_seconds == 150, "foreground return must preserve previous observed segments")
+        require(ConnectionHistory.currentObservation(events: resumed, now: now) == 50, "current observation is separate from daily accumulation")
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = ConnectionEventStore(scope: "synthetic", directory: dir)
@@ -59,6 +63,12 @@ import Foundation
         require(recorded.events.filter { $0.kind == "network_down" }.count == 1, "duplicate network callbacks or background detection")
         require(recorded.events.filter { $0.kind == "network_up" }.count == 1, "network recovery timestamp")
         require(recorded.events.last?.state == "unknown", "foreground return requires fresh service success")
+        recorder.success(); recorder.network(available: true, changed: true)
+        recorder.attempt(); recorder.success()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let switched = await recorder.store!.snapshot()
+        require(switched.events.last(where: { $0.kind == "network_change" })?.state == "unknown", "network switch alone is not a confirmed service outage")
+        require(switched.events.filter { $0.kind == "retry" }.count == 1, "normal foreground checks should not be logged as reconnect retries")
         recorder.disconnect()
         print("Connection history: coverage/gaps, persistence/acknowledgement, scope isolation, corruption and lifecycle checks passed")
     }

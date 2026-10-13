@@ -18,13 +18,25 @@ import (
 	"time"
 )
 
-// Only manually enrolled backends can use the publisher's fixed App topic.
+// Only authorized backends can use the publisher's fixed App topic.
 // The relay never stores device tokens, audio, phone numbers or SMS content.
 type relayGrant struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Hash        string `json:"hash"`
-	Environment string `json:"environment"`
+	ID            string       `json:"id"`
+	Name          string       `json:"name"`
+	Hash          string       `json:"hash"`
+	Environment   string       `json:"environment"`
+	Instance      string       `json:"instance_id,omitempty"`
+	PublicKey     string       `json:"instance_public_key,omitempty"`
+	BindingID     string       `json:"binding_id,omitempty"`
+	Created       time.Time    `json:"created_at,omitempty"`
+	Expires       time.Time    `json:"expires_at,omitempty"`
+	Revoked       time.Time    `json:"revoked_at,omitempty"`
+	Method        string       `json:"method,omitempty"`
+	Identity      string       `json:"identity_source,omitempty"`
+	AttestID      string       `json:"attest_key_id,omitempty"`
+	AttestPublic  string       `json:"attest_public_key,omitempty"`
+	AttestCounter uint32       `json:"attest_counter,omitempty"`
+	History       []relayAudit `json:"history,omitempty"`
 }
 type relayPush struct {
 	Kind        string `json:"kind"`
@@ -101,6 +113,9 @@ func newPushRelay(environment string, send func(context.Context, relayPush) (int
 func (p *pushRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if p.enrollment(w, r) {
+		return
+	}
 	if r.URL.Path == "/push-relay/health" && r.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "version": releaseVersion, "environment": p.Environment})
@@ -130,7 +145,7 @@ func (p *pushRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	valid := false
 	for _, g := range grants {
-		if subtle.ConstantTimeCompare([]byte(g.Hash), []byte(hash)) == 1 && g.Environment == p.Environment {
+		if subtle.ConstantTimeCompare([]byte(g.Hash), []byte(hash)) == 1 && g.Environment == p.Environment && grantActive(g, p.Now()) {
 			valid = true
 		}
 	}
@@ -240,6 +255,16 @@ func relayReply(w http.ResponseWriter, httpStatus, apnsStatus int, reason string
 }
 
 func relayCommand(ctx context.Context, args []string) error {
+	if args[0] == "relay-export" {
+		return exportRelayLedger(args)
+	}
+	if args[0] == "relay-issue" || args[0] == "relay-revoke" {
+		unlock, err := lockRelayStorage()
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
 	switch args[0] {
 	case "relay-issue":
 		if len(args) != 4 || strings.TrimSpace(args[1]) == "" || len(args[1]) > 80 || (args[2] != "sandbox" && args[2] != "production") {
@@ -267,7 +292,8 @@ func relayCommand(ctx context.Context, args []string) error {
 		if err != nil {
 			return errors.New("private output must be a new file")
 		}
-		grant := relayGrant{ID: hash[:16], Name: args[1], Hash: hash, Environment: args[2]}
+		grant := relayGrant{ID: hash[:16], Name: args[1], Hash: hash, Environment: args[2], Created: time.Now().UTC(), Method: "manual", Identity: "administrator_label"}
+		grant.History = []relayAudit{{At: grant.Created, Action: "issued"}}
 		if _, err = f.WriteString(key + "\n"); err == nil {
 			err = f.Sync()
 		}
@@ -297,6 +323,9 @@ func relayCommand(ctx context.Context, args []string) error {
 		for _, g := range grants {
 			if g.ID == args[1] {
 				found = true
+				g.Revoked = time.Now().UTC()
+				g.History = appendAudit(g.History, relayAudit{At: g.Revoked, Action: "revoked", Reason: "administrator"})
+				kept = append(kept, g)
 			} else {
 				kept = append(kept, g)
 			}

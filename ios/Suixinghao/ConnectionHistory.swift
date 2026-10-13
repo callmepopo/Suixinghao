@@ -19,8 +19,8 @@ struct ConnectionEvent: Codable, Identifiable, Sendable {
         case "connected": "App 连接服务成功"
         case "request_failed": "手机到服务请求失败"
         case "auth_failed": "鉴权失效，停止重试"
-        case "observer_start": "开始检测"
-        case "observer_stop": reason == "logout" ? "主动更换服务，结束检测" : "后台未检测"
+        case "observer_start": reason == "foreground" ? "回到前台，恢复检测" : "开始检测（不代表服务重连）"
+        case "observer_stop": reason == "logout" ? "主动断开或更换服务，结束检测" : "进入后台，暂停检测"
         case "module_state": "远端模块：\(stateTitle)"
         case "network_state": "模块蜂窝网络：\(stateTitle)"
         default: stateTitle
@@ -93,6 +93,18 @@ struct ConnectionHistory: Codable, Sendable {
     let events: [ConnectionEvent]
     let outages: [ConnectionOutage]
     let retention_days: Int
+    // Continuous observation is separate from the rolling 24-hour total.
+    // Gaps, foreground return, and network changes never erase stored history.
+    static func currentObservation(events: [ConnectionEvent], now: Double) -> Double? {
+        var start: Double?, previous: Double?
+        for event in events.sorted(by: { $0.at < $1.at }) where event.layer == "phone" && event.at <= now && !event.state.isEmpty {
+            if event.state == "unknown" { start = nil; previous = nil; continue }
+            if previous == nil || event.at - previous! > 90 { start = event.at }
+            previous = event.at
+        }
+        guard let start, let previous, now - previous <= 90 else { return nil }
+        return max(0, now - start)
+    }
     static func duration(_ seconds: Double) -> String {
         if seconds < 60 { return String(format: "%.1f 秒", seconds) }
         if seconds < 3600 { return String(format: "%.1f 分钟", seconds/60) }
@@ -284,7 +296,7 @@ final class ConnectionTelemetry {
         let previous = networkAvailable; networkAvailable = available
         if !available && previous != false { emit(kind: "network_down", state: "offline", reason: "no_network") }
         else if available && previous == false { emit(kind: "network_up") }
-        else if available && changed { emit(kind: "network_change", state: "offline", reason: "network_change") }
+        else if available && changed { emit(kind: "network_change", state: "unknown", reason: "network_change") }
     }
     func failed(authentication: Bool) {
         guard observing else { return }
@@ -295,8 +307,8 @@ final class ConnectionTelemetry {
         }
     }
     func attempt() {
-        guard observing else { return }
-        emit(kind: "retry", state: state == "offline" ? "offline" : "", reason: state == "offline" ? reason : "")
+        guard observing, state == "offline" else { return }
+        emit(kind: "retry", state: "offline", reason: reason)
     }
     func success() {
         guard observing else { return }

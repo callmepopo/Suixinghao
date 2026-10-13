@@ -120,3 +120,6 @@ App内扬声器／听筒切换只调整既有AVAudioSession输出路由，保留
 同产品版本正式build37以干净main/dc6844e及候选标签app-v0.1.8-rc-build37构建，Release分发签名、Production推送与默认通话权限通过；Apple处理VALID，既有内部测试组状态IN_BETA_TESTING。开发build36保留原来源。正式包已获SE3用户整体真机验收确认，未提供逐项日志；15Pro、Apple Watch提醒／清理及既有延期项另验；用户随后追加授权，同日已将同一0.1.8/build37提交App Store再次审核及TestFlight外部测试审核，提交后均等待审核，尚未批准或上架。
 
 2026-10-12核验：0.1.8/build37的TestFlight外部审核已通过（APPROVED），外部构建为IN_BETA_TESTING；App Store仍为WAITING_FOR_REVIEW，尚未上架。GitHub Release app-v0.1.8对应同一正式build37及原始干净来源dc6844e，历史Release保留；文档更新不重建软件或回改构建来源。
+
+
+App0.1.9在设置页直接显示版本／构建号，并分别展示手机推送登记与中继开通状态。自动开通需NAS服务0.1.5及发布者开启对应环境的验证接口：NAS管理员先申请，再由App确认，使用系统DeviceCheck/App Attest验证，不包含固定共享秘密。开发包与TestFlight使用分离证明环境，不支持的设备保留手工路径；模拟器不支持真实证明，编译通过不等于绑定验收。App证明key ID与待确认数据保存在ThisDeviceOnly钥匙串；不取得NAS中继凭据。

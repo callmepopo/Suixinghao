@@ -249,6 +249,8 @@ func routes() http.Handler {
 	m.HandleFunc("/voice-test/app/voip-token", appVoIPToken)
 	m.HandleFunc("/voice-test/app/sms-push-token", appSMSPushToken)
 	m.HandleFunc("/voice-test/app/connection-history", appConnectionHistory)
+	m.HandleFunc("/voice-test/app/push-setup", nasPushSetup)
+	m.HandleFunc("/voice-test/push-setup", nasPushSetup)
 	m.HandleFunc("/voice-test/app/", appProxy)
 	m.HandleFunc("/voice-test/app-access/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/voice-test/app-access/" || r.Method != "GET" {
@@ -348,6 +350,7 @@ func main() {
 	historyDone := startConnectionHistory(appContext)
 	go func() { defer close(workerDone); watchPhone(appContext) }()
 	go runIncomingPushes(appContext)
+	go runRelayRenewals(appContext)
 	go watchSMS(appContext)
 	go func() {
 		ticker := time.NewTicker(time.Minute)

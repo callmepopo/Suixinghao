@@ -181,7 +181,7 @@ func TestRelayGrantIssueAndRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants, _ = loadRelayGrants()
-	if len(grants) != 0 {
+	if len(grants) != 1 || grantActive(grants[0], time.Now()) || grants[0].Revoked.IsZero() {
 		t.Fatal("grant not revoked")
 	}
 }

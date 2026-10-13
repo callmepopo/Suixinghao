@@ -110,6 +110,22 @@ final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 204 else { throw APIError(message: "推送令牌清除失败。") }
     }
+    func requestJSON(_ base: URL, path: String, token: String, body: Data,
+                     query: [URLQueryItem] = []) async throws -> Data {
+        var request = URLRequest(url: Self.requestURL(base, path: path, query: query))
+        request.timeoutInterval = 30
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError(message: "服务器响应无效。") }
+        guard (200..<300).contains(http.statusCode) else {
+            let message = [403: "应用验证未通过或授权已撤销，请核对 NAS 和中继状态。", 410: "绑定已过期，请在 NAS 重新申请。", 429: "申请过于频繁或已达绑定上限，请稍后重试。", 503: "自动开通服务暂不可用，请检查中继配置。"]
+            throw APIError(message: message[http.statusCode] ?? "开通未完成（HTTP \(http.statusCode)），请刷新状态后重试。", statusCode: http.statusCode)
+        }
+        return data
+    }
     func deleteSMS(_ base: URL, token: String, contact: SMSContact, messageID: Int?) async throws {
         if let messageID, messageID <= 0 { throw APIError(message: "无效的短信记录。") }
         let path = messageID.map { "voice-test/app/sms/messages/\($0)" } ?? "voice-test/app/sms/thread"

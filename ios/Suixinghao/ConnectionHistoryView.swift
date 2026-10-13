@@ -18,7 +18,9 @@ struct ConnectionHistoryView: View {
     var body: some View {
         List {
             Section {
-                Text("在线率按实际检测时长计算；检测覆盖率说明最近 24 小时有多少时间可被观察。后台暂停与采样过期的时段计为未检测。").font(.footnote).foregroundStyle(.secondary)
+                Text("手机检测主要在 App 前台或通话期间进行。普通后台暂停与采样过期记为未检测，不代表服务离线。覆盖率是最近 24 小时有效检测时长的占比，不能用于判断锁屏推送是否可用。").font(.footnote).foregroundStyle(.secondary)
+                LabeledContent("本次连续有效检测", value: model.currentObservationSeconds.map(ConnectionHistory.duration) ?? "已暂停或等待新检测")
+                Text("本次检测恢复后重新计时；下方最近 24 小时累计记录保留。数据在进入页面或刷新时更新。").font(.caption).foregroundStyle(.secondary)
                 if !model.connectionHistoryMessage.isEmpty {
                     Text(model.connectionHistoryMessage).font(.footnote)
                 }
@@ -28,8 +30,10 @@ struct ConnectionHistoryView: View {
             }
             ForEach(summaries) { summary in
                 Section(summary.title + " · 最近 24 小时") {
-                    LabeledContent("在线率", value: summary.rateText)
+                    LabeledContent("检测期间在线率", value: summary.rateText)
                     LabeledContent("检测覆盖率", value: summary.coverageText)
+                    LabeledContent("最近 24 小时有效检测", value: ConnectionHistory.duration(summary.online_seconds + summary.offline_seconds))
+                    LabeledContent("检测到的在线时长", value: ConnectionHistory.duration(summary.online_seconds))
                     GeometryReader { geometry in
                         HStack(spacing: 0) {
                             Color.teal.frame(width: geometry.size.width * summary.online_seconds / 86400)
