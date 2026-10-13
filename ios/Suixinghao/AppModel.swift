@@ -666,9 +666,9 @@ final class AppModel {
         do {
             let proof = try await PushEnrollment.proof(challenge: challenge)
             guard epoch == run, connected else { return }
-            try await api.confirmPush(base: base, token: smsToken, binding: binding,
+            let result = try await api.confirmPush(base: base, token: smsToken, binding: binding,
                                       proof: proof, environment: PushEnrollment.environment)
-            try PushEnrollment.confirmed()
+            try PushEnrollment.recoverConfirmation(keyID: result.confirmed_app_key)
             guard epoch == run else { return }
             await registerVoIPToken(); await refreshPushSetup()
         } catch {

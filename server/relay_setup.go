@@ -295,11 +295,19 @@ func nasPushSetup(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(410)
 			return
 		}
-		if _, e = nasRelayRequest(r.Context(), s, "confirm", in.Proof); e != nil {
-			fail(e)
+		response, err := nasRelayRequest(r.Context(), s, "confirm", in.Proof)
+		if err != nil {
+			fail(err)
 			return
 		}
-		s.ConfirmedAppKey = in.Proof.KeyID
+		var confirmation struct {
+			KeyID string `json:"confirmed_app_key"`
+		}
+		if json.Unmarshal(response, &confirmation) != nil || confirmation.KeyID == "" {
+			w.WriteHeader(503)
+			return
+		}
+		s.ConfirmedAppKey = confirmation.KeyID
 		if saveNASRelay(s) != nil {
 			w.WriteHeader(503)
 			return

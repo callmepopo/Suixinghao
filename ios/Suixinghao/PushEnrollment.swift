@@ -99,10 +99,11 @@ struct PushProof: Codable { let key_id: String; let object: String; let assertio
 }
 
 extension API {
-    func confirmPush(base: URL, token: String, binding: String, proof: PushProof, environment: String) async throws {
+    func confirmPush(base: URL, token: String, binding: String, proof: PushProof, environment: String) async throws -> PushSetup {
         struct Body: Encodable { let action = "confirm"; let binding_id: String; let proof: PushProof }
         let data = try JSONEncoder().encode(Body(binding_id: binding, proof: proof))
-        _ = try await requestJSON(base, path: "voice-test/app/push-setup", token: token,
+        let response = try await requestJSON(base, path: "voice-test/app/push-setup", token: token,
             body: data, query: [URLQueryItem(name: "environment", value: environment)])
+        return try JSONDecoder().decode(PushSetup.self, from: response)
     }
 }

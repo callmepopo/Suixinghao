@@ -304,7 +304,7 @@ func (p *pushRelay) enrollment(w http.ResponseWriter, r *http.Request) bool {
 				w.WriteHeader(409)
 				return true
 			}
-			write(map[string]any{"state": "authorized", "grant_id": g.ID})
+			write(map[string]any{"state": "authorized", "grant_id": g.ID, "confirmed_app_key": g.AttestID})
 			return true
 		}
 		var binding *relayBinding
@@ -361,7 +361,7 @@ func (p *pushRelay) enrollment(w http.ResponseWriter, r *http.Request) bool {
 			w.WriteHeader(503)
 			return true
 		}
-		write(map[string]any{"state": "authorized", "grant_id": g.ID})
+		write(map[string]any{"state": "authorized", "grant_id": g.ID, "confirmed_app_key": g.AttestID})
 		return true
 	}
 	if index < 0 {

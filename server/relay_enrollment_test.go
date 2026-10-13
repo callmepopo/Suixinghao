@@ -78,6 +78,13 @@ func TestAutomaticEnrollmentLifecycleAndLedger(t *testing.T) {
 			t.Fatalf("confirm %d", w.Code)
 		}
 	}
+	w, _ = enrollmentCall(p, key, "confirm", b.ID, "synthetic recipient", &attestProof{KeyID: "unverified-retry-key", Object: "invalid"})
+	var receipt struct {
+		KeyID string `json:"confirmed_app_key"`
+	}
+	if json.Unmarshal(w.Body.Bytes(), &receipt) != nil || receipt.KeyID != "app-key" {
+		t.Fatal("confirmation retry must return original verified key, not caller input")
+	}
 	w, body := enrollmentCall(p, key, "claim", b.ID, "synthetic recipient", nil)
 	if w.Code != 200 {
 		t.Fatal("claim")
