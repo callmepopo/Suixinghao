@@ -36,7 +36,7 @@ lines = [start, '## 中继签发台账（管理导出）', '',
 for r in rows:
     if not re.fullmatch(r'[0-9a-f]{16}', r['id']):
         raise SystemExit('Invalid authorization ID')
-    history = '；'.join(f"{date(x.get('at'))} {cell(x.get('action'))}" for x in r.get('history', []))
+    history = '；'.join(f"{date(x.get('at'))} {cell(x.get('action'))}" for x in (r.get('history') or []))
     values = [r['id'], r.get('name'), r.get('instance_id'), r.get('environment'), date(r.get('created_at')),
               r.get('method'), r.get('status'), date(r.get('revoked_at') if r.get('status') == 'revoked' else r.get('expires_at')), history or '历史事件未留存']
     lines.append('| ' + ' | '.join(cell(x) for x in values) + ' |')
