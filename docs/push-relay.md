@@ -99,3 +99,6 @@ python3 scripts/sync-relay-ledger.py --ledger <私有JSON> --material <私有网
 
 
 本批部署结果（2026-10-13）：服务0.1.5/build6与两环境中继已部署；原授权及用户NAS手工配置保留，健康、拒绝非法开通请求和HTTPS入口检查通过。App0.1.9开发build39／内部TestFlight build40已可分发；真实Apple应用证明与自动模式NAS锁屏验证仍待完成。Production台账已成功脱敏导出和本地材料合并；这是管理员同步，不是实时公网写文件。
+
+
+用户首次开通的前提、步骤与既有手工授权迁移见[自动推送说明](automatic-push.md)；不能只安装App就为任意服务器领取授权。

@@ -68,3 +68,10 @@ App Store 的设备适配与处理会改变分发包，不能把用户下载包�
 用户明确要求本轮1／2／3／4同时提供15Pro网页开发包和SE3 TestFlight。开发App0.1.9/build39及服务0.1.5/build6来源为干净develop的eaf435a；Production内部测试build40为干净develop的8623a7d，正式分发签名与上传处理VALID，已关联既有SE3内部组并读回IN_BETA_TESTING。此次仅按明确渠道要求提前验证Production，不代表已通过开发真机验收，也未合main、推GitHub、提交App Store或外部测试审核。真实Apple证明、锁屏和声音仍待验；通过后恢复上文正式发布流程，不能把该例外视为以后自动提前发布的授权。
 
 App0.1.9的自动开通新增登记昵称、随机NAS实例和App Attest验证数据，政策／PrivacyInfo已更新。后续正式商店提交前核对实际App Privacy声明及政策公开版本，不能仅因内部上传成功认为声明和正式审核已完成。
+
+
+## 2026-10-13 两机反馈与网友测试发布
+
+用户随后确认15Pro开发0.1.9/build39及SE3 TestFlight0.1.9/build40整体测试通过，逐项日志未提供；自动模式NAS真实App Attest绑定不由该反馈推定通过。用户追加授权更新GitHub并供网友组测试：公开版本为App0.1.9/build40、服务0.1.5/build6，GitHub采用prerelease；标签固定App build40原来源8623a7d，服务产物原来源eaf435a。保留旧包、旧标签与已上传产物，不重建或回改来源。对应源码及管理工具／文档同步main和develop，自动绑定验证边界明确。
+
+既有外部组17人关联build40并已提交Beta审核，Apple读回WAITING_FOR_REVIEW（提交）及WAITING_FOR_BETA_REVIEW（构建），批准前不能宣称外部可安装；旧build37保留。本轮没有提交App Store、开启公共测试链接或重发邀请。
