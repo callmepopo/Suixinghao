@@ -38,3 +38,8 @@ URL与App Key足以表达用户的业务服务接入。锁屏来电还需要对�
 源码与商店软件的关系应表述为“该版本对应公开源码及可追溯构建”。[GitHub产物证明](https://docs.github.com/en/actions/concepts/security/artifact-attestations)绑定提交和构建流程，[可复现构建](https://reproducible-builds.org/docs/definition/)还需要固定环境与独立复建比对；Apple会制作 [设备包变体](https://developer.apple.com/documentation/Xcode/reducing-your-app-s-size)，不能用商店下载包与提交IPA简单哈希相等证明源码一致。不要把签名/版本号一致写成未经验证的字节级证明。
 
 Apple提交与审核的当前规范参见 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) 和 [上传构建](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/)。依赖上游非商业限制与App Store目标应单独核对；自有MIT许可不覆盖HiDeck、GPL驱动或Apple协议。
+
+
+## 2026-10-13 自动开通内部候选
+
+按用户指定的SE3 TestFlight渠道，App0.1.9/build40已上传并在既有内部组可测试，Apple VALID／IN_BETA_TESTING；未提交商店或外部测试审核，原商店及网友外部包不由本轮替换。开发包build39通过既有网页渠道提供，自动授权服务0.1.5已部署。真实App Attest与锁屏仍待验，隐私数据新增须在正式提交前核对；细节及此次干净develop内部测试例外见[发布说明](releasing.md)。

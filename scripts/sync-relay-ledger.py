@@ -3,6 +3,7 @@
 No network, email, plaintext key export, automatic recipient matching or uploads.
 """
 import argparse
+import html
 import json
 import os
 import re
@@ -24,7 +25,7 @@ material = args.material.read_text()
 if args.material.stat().st_mode & 0o077:
     raise SystemExit('Material must already be private (0600)')
 def cell(value):
-    return str(value or '待登记').replace('|', '／').replace('\n', ' ').replace('\r', ' ').replace('`', '')
+    return html.escape(str(value or '待登记'), quote=False).replace('|', '／').replace('\n', ' ').replace('\r', ' ').replace('`', '').replace('[', r'\[').replace(']', r'\]')
 def date(value):
     return '历史时间未留存' if not value or value.startswith('0001-') else value
 start = '<!-- relay-ledger:start -->'

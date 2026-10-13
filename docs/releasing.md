@@ -61,3 +61,10 @@ App Store 的设备适配与处理会改变分发包，不能把用户下载包�
 2026-10-11：用户追加授权的0.1.8/build37正式候选已上传TestFlight。干净来源dc6844e、候选标签app-v0.1.8-rc-build37；分发签名、Production权限及Apple VALID处理核验通过，既有内部组IN_BETA_TESTING。正式包已获SE3用户整体真机验收确认，逐项日志未提供；15Pro、Apple Watch及既有延期项不在本次确认范围。用户同日追加授权，已通过Safari将商店版本及构建更新至0.1.8/build37并再次提交；同一构建已提交TestFlight外部审核。Apple读回分别为WAITING_FOR_REVIEW与WAITING_FOR_BETA_REVIEW，尚未批准或上架。候选来源固定在该标签，后续文档提交不回改产物来源；未完成独立构建attestation。
 
 2026-10-12核验：0.1.8/build37的TestFlight外部审核已通过（APPROVED），外部构建为IN_BETA_TESTING；App Store仍为WAITING_FOR_REVIEW，尚未上架。GitHub Release app-v0.1.8对应同一正式build37及原始干净来源dc6844e，历史Release保留；文档更新不重建软件或回改构建来源。
+
+
+## 2026-10-13 内部测试渠道例外
+
+用户明确要求本轮1／2／3／4同时提供15Pro网页开发包和SE3 TestFlight。开发App0.1.9/build39及服务0.1.5/build6来源为干净develop的eaf435a；Production内部测试build40为干净develop的8623a7d，正式分发签名与上传处理VALID，已关联既有SE3内部组并读回IN_BETA_TESTING。此次仅按明确渠道要求提前验证Production，不代表已通过开发真机验收，也未合main、推GitHub、提交App Store或外部测试审核。真实Apple证明、锁屏和声音仍待验；通过后恢复上文正式发布流程，不能把该例外视为以后自动提前发布的授权。
+
+App0.1.9的自动开通新增登记昵称、随机NAS实例和App Attest验证数据，政策／PrivacyInfo已更新。后续正式商店提交前核对实际App Privacy声明及政策公开版本，不能仅因内部上传成功认为声明和正式审核已完成。
