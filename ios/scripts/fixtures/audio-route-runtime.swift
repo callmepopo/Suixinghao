@@ -32,6 +32,8 @@ final class AVAudioSession {
     var availableInputs: [PortDescription]? = [mic, car]
     var currentRoute = Route(inputs: [mic], outputs: [PortDescription(uid: "receiver", portType: .builtInReceiver, portName: "Phone")])
     var hardwareRate = 48000.0
+    var preferredInput: PortDescription?
+    var deferOverrideReset = false, pendingOverrideReset = false
     var preferredRequests = 0, overrideRequests = 0
     var startFailures = 0
     var activeCalls = 0
@@ -41,13 +43,20 @@ final class AVAudioSession {
     func setActive(_ value: Bool, options: SetActiveOptions = []) throws { activeCalls += 1 }
     func setPreferredInput(_ port: PortDescription?) throws {
         preferredRequests += 1
+        preferredInput = port
         route(port?.portType == .bluetoothHFP ? .external : .receiver, reason: .override)
         interruptIfRequested()
     }
     func overrideOutputAudioPort(_ port: PortOverride) throws {
         overrideRequests += 1
+        if port == .none && deferOverrideReset { pendingOverrideReset = true; return }
         route(port == .speaker ? .speaker : .receiver, reason: .override)
         interruptIfRequested()
+    }
+    func finishOverrideReset() {
+        guard pendingOverrideReset else { return }
+        pendingOverrideReset = false
+        route(preferredInput?.portType == .bluetoothHFP ? .external : .receiver, reason: .override)
     }
     private func interruptIfRequested() {
         if interruptOnSelection {
@@ -66,6 +75,7 @@ final class AVAudioSession {
         NotificationCenter.default.post(name: Self.routeChangeNotification, object: self, userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
     }
     func reset() {
+        preferredInput = nil; deferOverrideReset = false; pendingOverrideReset = false
         availableInputs = [Self.mic, Self.car]; preferredRequests = 0; overrideRequests = 0; activeCalls = 0; startFailures = 0; interruptOnSelection = false
         route(.receiver, reason: .unknown)
     }
@@ -198,6 +208,22 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         await settle()
         precondition(audio.isEngineRunning && audio.muted && audio.isActiveCall && failures == 0)
         precondition(AVAudioConverter.sourceRates.last == 48000)
+        // Speaker uses the built-in mic, but the preferred input still points to
+        // HFP. Clearing the override is asynchronous: currentRoute alone cannot
+        // tell whether a receiver request has actually replaced that preference.
+        precondition(session.preferredInput?.uid == AVAudioSession.car.uid)
+        session.deferOverrideReset = true
+        try audio.selectRoute("input:phone")
+        session.finishOverrideReset(); await settle()
+        precondition(session.preferredInput?.uid == AVAudioSession.mic.uid, "Receiver must clear stale HFP preference")
+        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver)
+        precondition(audio.isEngineRunning && audio.isActiveCall && audio.muted)
+        try audio.selectRoute("input:synthetic-car"); await settle()
+        try audio.selectRoute("input:phone"); await settle()
+        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver && audio.isEngineRunning)
+        session.deferOverrideReset = false
+        try audio.selectRoute("speaker"); await settle()
+        graph = AVAudioEngine.latest!
         let convertersBeforeSpeaker = AVAudioConverter.sourceRates.count
         // Internal reconfiguration loses the temporary speaker override.
         session.route(.receiver, reason: .routeConfigurationChange); graph.configurationChanged()

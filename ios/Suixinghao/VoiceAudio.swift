@@ -254,10 +254,14 @@ final class VoiceAudio {
             guard let input = session.availableInputs?.first(where: { "input:" + $0.uid == id }) else {
                 throw APIError(message: "该声音设备已断开，请重新选择。")
             }
-            // Selecting an already active AirPods input is a no-op. Avoid a
-            // needless .none transition through another route before HFP selection.
+            // currentRoute can still show the speaker's built-in mic after
+            // clearing its override, while preferredInput remains AirPods.
+            // Replace that preference too; otherwise iOS returns to HFP when
+            // the asynchronous override reset finishes.
             if Self.outputKind(session) == .speaker { try session.overrideOutputAudioPort(.none) }
-            if session.currentRoute.inputs.first?.uid != input.uid { try session.setPreferredInput(input) }
+            if session.preferredInput?.uid != input.uid || session.currentRoute.inputs.first?.uid != input.uid {
+                try session.setPreferredInput(input)
+            }
             routePolicy.selected(input.portType == .builtInMic ? .receiver : .external)
         }
         reportSpeakerRoute()
