@@ -28,6 +28,7 @@ final class VoiceAudio {
     var onRoutesChanged: (([CallAudioRoute], String, String) -> Void)?
     var onAudioStatusChanged: ((String?) -> Void)?
     private var observers: [NSObjectProtocol] = []
+    private var engineObserver: NSObjectProtocol?
     var onSpeakerChanged: ((Bool) -> Void)?
     private(set) var muted = false
     private var earlyMedia = false
@@ -97,21 +98,16 @@ final class VoiceAudio {
             self.callKitManaged = callKitManaged
             earlyMedia = false; active = false; muted = false; outgoing.enable(false)
             generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
-            observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self, weak graph] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let graph, self.engine === graph, self.routeScope == scope else { return }
-                    self.scheduleRouteRecovery(graph)
-                }
-            })
+            observeEngine(graph)
             graph.prepare()
             if !audioSuspended { try graph.start() }
             configuredRoute = routeSignature(graph)
             configuredHardware = hardwareSignature(graph)
             if !audioSuspended { output.play() }
             try await Task.sleep(nanoseconds: 120_000_000)
-            guard engine === graph, routeScope == scope else { throw CancellationError() }
-            if !audioSuspended && !graph.isRunning { try rebuildRoute(graph) }
-            scheduleRouteRecovery(graph)
+            guard let current = engine, routeScope == scope else { throw CancellationError() }
+            if !audioSuspended && !current.isRunning { try rebuildRoute(current) }
+            if let current = engine { scheduleRouteRecovery(current) }
             reportSpeakerRoute()
         } catch {
             // A hangup may have stopped this graph while startup was suspended.
@@ -120,6 +116,7 @@ final class VoiceAudio {
             routeScope = nil
             outgoing.resetCapture()
             observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
+            if let engineObserver { NotificationCenter.default.removeObserver(engineObserver) }; engineObserver = nil
             if tapInstalled { graph.inputNode.removeTap(onBus: 0); tapInstalled = false }
             graph.stop()
             waitingPlayer?.stop(); waitingPlayer = nil; waitingTone = false
@@ -275,35 +272,38 @@ final class VoiceAudio {
     }
 
     private func installCapture(on graph: AVAudioEngine) throws {
-        let inputFormat = graph.inputNode.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-              let uplink = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: inputFormat, to: uplink) else {
+        let inputFormat = graph.inputNode.inputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw APIError(message: "当前音频设备无法建立通话通道。")
         }
-        converter.primeMethod = .none
+        let converter = try PCMInputConverter()
         let frames = outgoing
         let capture = frames.resetCapture()
-        graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
+        // nil inherits the current bus format; never force a cached format onto
+        // a hardware input (which raises an uncaught Obj-C AVFAudio exception).
+        let captureBlock: AVAudioNodeTapBlock = { buffer, _ in
             #if DEBUG
             frames.noteInput(buffer)
             #endif
-            let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 8000 / inputFormat.sampleRate) + 64)
-            guard let converted = AVAudioPCMBuffer(pcmFormat: uplink, frameCapacity: capacity) else { return }
-            var provided = false
-            var failure: NSError?
-            let status = converter.convert(to: converted, error: &failure) { _, state in
-                if provided { state.pointee = .noDataNow; return nil }
-                provided = true; state.pointee = .haveData; return buffer
-            }
-            if failure == nil, status != .error, let channel = converted.int16ChannelData?[0] {
-                frames.append(Data(bytes: channel, count: Int(converted.frameLength) * 2), generation: capture)
+            if let data = converter.convert(buffer) {
+                frames.append(data, generation: capture)
             } else {
                 #if DEBUG
                 frames.noteConversionFailure()
                 #endif
             }
         }
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            // iOS 27 exposes the error-returning tap API. Keep a transient
+            // hardware failure inside the bounded recovery path, not an abort.
+            try graph.inputNode.__installTap(onBus: 0, bufferSize: 1024, format: nil, error: (), block: captureBlock)
+        } else {
+            graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil, block: captureBlock)
+        }
+        #else
+        graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil, block: captureBlock)
+        #endif
         tapInstalled = true
     }
 
@@ -314,7 +314,7 @@ final class VoiceAudio {
 
     private func hardwareSignature(_ graph: AVAudioEngine) -> String {
         let session = AVAudioSession.sharedInstance()
-        let input = graph.inputNode.outputFormat(forBus: 0)
+        let input = graph.inputNode.inputFormat(forBus: 0)
         let output = graph.outputNode.inputFormat(forBus: 0)
         return "\(input.sampleRate)/\(input.channelCount)/\(output.sampleRate)/\(output.channelCount)/" +
             session.currentRoute.inputs.map { $0.uid + $0.portType.rawValue }.joined(separator: "/")
@@ -367,14 +367,46 @@ final class VoiceAudio {
             outgoing.resetCapture()
             graph.stop()
             if tapInstalled { graph.inputNode.removeTap(onBus: 0); tapInstalled = false }
-            // HFP/USB may change input format. Plain receiver↔speaker switching
-            // keeps its valid tap/converter and must not rebuild the I/O graph.
-            try installCapture(on: graph)
-            graph.disconnectNodeOutput(graph.mainMixerNode)
-            graph.connect(graph.mainMixerNode, to: graph.outputNode, format: nil)
-            graph.prepare()
+            // The old I/O unit can retain its former HFP bus format after stop.
+            // Build a fresh graph instead of reinstalling a tap on that old unit.
+            let replacement = AVAudioEngine()
+            let replacementPlayer = AVAudioPlayerNode()
+            guard let format = playbackFormat else { throw APIError(message: "声音格式暂不可用。") }
+            replacement.attach(replacementPlayer)
+            replacement.connect(replacementPlayer, to: replacement.mainMixerNode, format: format)
+            let replacementWaiting = AVAudioPlayerNode()
+            replacement.attach(replacementWaiting)
+            replacement.connect(replacementWaiting, to: replacement.mainMixerNode, format: format)
+            do {
+                try installCapture(on: replacement)
+                replacement.prepare()
+                try replacement.start()
+            } catch {
+                if tapInstalled { replacement.inputNode.removeTap(onBus: 0); tapInstalled = false }
+                replacement.stop()
+                throw error
+            }
+            engine = replacement; player = replacementPlayer; waitingPlayer = replacementWaiting
+            observeEngine(replacement)
+            finishRouteRecovery(replacement, resumeTone: resumeTone)
+            return
         }
         if !graph.isRunning { try graph.start() }
+        finishRouteRecovery(graph, resumeTone: resumeTone)
+    }
+
+    private func observeEngine(_ graph: AVAudioEngine) {
+        if let engineObserver { NotificationCenter.default.removeObserver(engineObserver) }
+        let scope = routeScope
+        engineObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self, weak graph] _ in
+            MainActor.assumeIsolated {
+                guard let self, let graph, self.engine === graph, self.routeScope == scope else { return }
+                self.scheduleRouteRecovery(graph)
+            }
+        }
+    }
+
+    private func finishRouteRecovery(_ graph: AVAudioEngine, resumeTone: Bool) {
         recoveryFailures = 0
         recoveryFailed = false
         syncCaptureState()
@@ -466,6 +498,7 @@ final class VoiceAudio {
         audioSuspended = false; recoveryFailed = false; onAudioStatusChanged?(nil)
         outgoing.resetCapture()
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
+        if let engineObserver { NotificationCenter.default.removeObserver(engineObserver) }; engineObserver = nil
         generation = UUID(); scheduled = 0
         let wasRunning = engine != nil
         if let engine { if tapInstalled { engine.inputNode.removeTap(onBus: 0) }; engine.stop() }

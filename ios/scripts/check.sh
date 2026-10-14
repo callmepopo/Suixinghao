@@ -3,7 +3,7 @@ set -eu
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 mkdir -p .build/checks
-xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/API.swift Suixinghao/ConnectionHistory.swift Suixinghao/VoiceSendLoop.swift Suixinghao/PCMFrames.swift scripts/check.swift -o .build/checks/contracts
+xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/API.swift Suixinghao/ConnectionHistory.swift Suixinghao/VoiceSendLoop.swift Suixinghao/PCMFrames.swift Suixinghao/PCMInputConverter.swift scripts/check.swift -o .build/checks/contracts
 .build/checks/contracts
 xcrun swiftc -D DEBUG -module-cache-path .build/checks/module-cache Suixinghao/API.swift Suixinghao/ConnectionHistory.swift Suixinghao/VoiceSendLoop.swift Suixinghao/VoiceTransport.swift Suixinghao/PCMFrames.swift scripts/audio-check.swift -o .build/checks/audio-check
 .build/checks/audio-check

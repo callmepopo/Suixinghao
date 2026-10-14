@@ -2,6 +2,7 @@
 import Foundation
 
 typealias AVAudioFrameCount = UInt32
+typealias AVAudioNodeTapBlock = (AVAudioPCMBuffer, Int) -> Void
 let AVAudioSessionRouteChangeReasonKey = "route-reason"
 let AVAudioSessionInterruptionTypeKey = "interruption-type"
 extension Notification.Name { static let AVAudioEngineConfigurationChange = Self("engine-config") }
@@ -72,16 +73,19 @@ final class AVAudioSession {
 enum AVAudioApplication { static func requestRecordPermission() async -> Bool { true } }
 enum AVAudioCommonFormat { case pcmFormatFloat32, pcmFormatInt16 }
 final class AVAudioFormat {
+    func isEqual(_ other: AVAudioFormat) -> Bool { sampleRate == other.sampleRate && channelCount == other.channelCount }
     let sampleRate: Double, channelCount: UInt32
     init?(commonFormat: AVAudioCommonFormat, sampleRate: Double, channels: UInt32, interleaved: Bool) { self.sampleRate = sampleRate; channelCount = channels }
 }
 final class AVAudioPCMBuffer {
+    let format: AVAudioFormat
     var frameLength: UInt32 = 0
     private let floats: UnsafeMutablePointer<Float>, ints: UnsafeMutablePointer<Int16>
     private let floatChannels: UnsafeMutablePointer<UnsafeMutablePointer<Float>>, intChannels: UnsafeMutablePointer<UnsafeMutablePointer<Int16>>
     var floatChannelData: UnsafePointer<UnsafeMutablePointer<Float>>? { UnsafePointer(floatChannels) }
     var int16ChannelData: UnsafePointer<UnsafeMutablePointer<Int16>>? { UnsafePointer(intChannels) }
     init?(pcmFormat: AVAudioFormat, frameCapacity: UInt32) {
+        format = pcmFormat
         floats = .allocate(capacity: Int(frameCapacity)); floats.initialize(repeating: 0, count: Int(frameCapacity))
         ints = .allocate(capacity: Int(frameCapacity)); ints.initialize(repeating: 0, count: Int(frameCapacity))
         floatChannels = .allocate(capacity: 1); floatChannels.initialize(to: floats)
@@ -95,14 +99,27 @@ final class AVAudioConverter {
     enum OutputStatus { case error, haveData }
     static var sourceRates: [Double] = []
     var primeMethod = PrimeMethod.none
-    init?(from: AVAudioFormat, to: AVAudioFormat) { Self.sourceRates.append(from.sampleRate) }
+    let inputFormat: AVAudioFormat
+    init?(from: AVAudioFormat, to: AVAudioFormat) { inputFormat = from; Self.sourceRates.append(from.sampleRate) }
     func convert(to: AVAudioPCMBuffer, error: inout NSError?, withInputFrom: (UInt32, UnsafeMutablePointer<InputStatus>) -> AVAudioPCMBuffer?) -> OutputStatus { .haveData }
 }
 class AVAudioNode {
-    func outputFormat(forBus: Int) -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AVAudioSession.value.hardwareRate, channels: 1, interleaved: false)! }
-    func inputFormat(forBus: Int) -> AVAudioFormat { outputFormat(forBus: forBus) }
-    func installTap(onBus: Int, bufferSize: UInt32, format: AVAudioFormat, block: @escaping (AVAudioPCMBuffer, Int) -> Void) {}
-    func removeTap(onBus: Int) {}
+    // Model a stopped I/O unit retaining its OLD output format while hardware changes.
+    private let cachedRate = AVAudioSession.value.hardwareRate
+    private var tapped = false
+    func outputFormat(forBus: Int) -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: cachedRate, channels: 1, interleaved: false)! }
+    func inputFormat(forBus: Int) -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AVAudioSession.value.hardwareRate, channels: 1, interleaved: false)! }
+    func installTap(onBus: Int, bufferSize: UInt32, format: AVAudioFormat?, block: @escaping (AVAudioPCMBuffer, Int) -> Void) {
+        precondition(!tapped, "Duplicate capture tap")
+        let hardware = inputFormat(forBus: onBus)
+        precondition(format == nil || format!.isEqual(hardware), "Stale tap format conflicts with hardware")
+        precondition(hardware.sampleRate > 0)
+        tapped = true
+        let buffer = AVAudioPCMBuffer(pcmFormat: hardware, frameCapacity: 1024)!
+        buffer.frameLength = 1024
+        block(buffer, 0)
+    }
+    func removeTap(onBus: Int) { precondition(tapped); tapped = false }
 }
 final class AVAudioPlayerNode: AVAudioNode {
     enum CompletionCallbackType { case dataPlayedBack }
@@ -148,7 +165,7 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         audio.audioSessionActivated()
         precondition(session.currentRoute.outputs.first?.portType == .bluetoothHFP)
         try await audio.start(callKitManaged: true)
-        let graph = AVAudioEngine.latest!
+        var graph = AVAudioEngine.latest!
         precondition(AVAudioConverter.sourceRates.last == 16000)
         precondition(routes.contains { $0.id == "input:synthetic-car" })
         audio.setActiveCall(true); audio.setMuted(true)
@@ -174,6 +191,9 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         precondition(audio.isActiveCall && !audio.isEngineRunning && audioMessage != nil)
         audio.audioSessionActivated(); await settle()
         precondition(audio.isEngineRunning && audio.muted && audioMessage == nil)
+        precondition(graph !== AVAudioEngine.latest!)
+        precondition(graph.inputNode.outputFormat(forBus: 0).sampleRate == 16000 && graph.inputNode.inputFormat(forBus: 0).sampleRate == 48000)
+        graph = AVAudioEngine.latest!
         session.route(.speaker, reason: .override); graph.configurationChanged()
         await settle()
         precondition(audio.isEngineRunning && audio.muted && audio.isActiveCall && failures == 0)
@@ -192,10 +212,13 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         try audio.selectRoute("input:synthetic-car"); graph.configurationChanged()
         await settle()
         precondition(AVAudioConverter.sourceRates.last == 16000 && audio.muted)
+        precondition(graph !== AVAudioEngine.latest!)
+        graph = AVAudioEngine.latest!
         session.availableInputs = [AVAudioSession.mic]
         session.route(.receiver, reason: .oldDeviceUnavailable); graph.configurationChanged()
         await settle()
         precondition(audio.isEngineRunning && audio.isActiveCall && failures == 0)
+        graph = AVAudioEngine.latest!
         do { try audio.selectRoute("input:synthetic-car"); preconditionFailure("Missing device accepted") } catch {}
         precondition(audio.isEngineRunning)
         // One transient engine failure retries and preserves early-media waiting tone.
@@ -227,6 +250,6 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         precondition(audio.isEngineRunning && newest.starts == count && failures == 1)
         precondition(session.activeCalls == 0) // Only CallKit owns activation/deactivation.
         audio.stop()
-        print("通过：实际VoiceAudio代码模拟中断暂停不挂断、CallKit重新激活、恢复失败可重试、HFP接入/采样率变化、系统免提回退修复、手动听筒优先、蓝牙断开续通话、暂态重试/超限、等待音/静音保留、旧引擎/任务隔离；无硬件实证")
+        print("通过：实际VoiceAudio代码模拟旧节点格式滞留/新引擎重建、实际采集格式转换、中断暂停不挂断、CallKit重新激活、恢复失败可重试、HFP接入/采样率变化、系统免提回退修复、手动听筒优先、蓝牙断开续通话、暂态重试/超限、等待音/静音保留、旧引擎/任务隔离；无硬件实证")
     }
 }

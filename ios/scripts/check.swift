@@ -92,6 +92,17 @@ import AVFoundation
         try check(failure == nil && conversionStatus != .error && output.frameLength == 160, "48kHz 采样转换为 8kHz 20ms")
         let converted = Data(bytes: output.int16ChannelData![0], count: 320)
         try check(PCMFrames.floatSamples(converted)!.contains { abs($0) > 0.2 }, "重采样保留有效声音")
+        let actualConverter = try PCMInputConverter()
+        for rate in [16000.0, 48000.0, 24000.0, 44100.0, 16000.0] {
+            let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
+            let count = Int(rate / 50)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: UInt32(count))!
+            buffer.frameLength = UInt32(count)
+            for i in 0..<count { buffer.floatChannelData![0][i] = Float(sin(Double(i) * 2 * .pi * 1000 / rate)) * 0.5 }
+            let data = actualConverter.convert(buffer)
+            try check(data?.count == 320, "实际采集格式变化后仍输出8kHz/20ms")
+            try check(PCMFrames.floatSamples(data!)!.contains { abs($0) > 0.2 }, "格式切换后仍有有效声音")
+        }
         print("通过：号码、HTTPS/Key、短信互斥标识、20ms 音频分帧、缓存上限、静音清理、PCM 解码及 48k→8k 重采样。未联网、未启用麦克风。")
     }
 }
