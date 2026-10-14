@@ -227,7 +227,7 @@ final class VoiceAudio {
         routeRecovery = attempt
         // AirPods/car HFP links often need several seconds; keep retrying quietly (~12 s)
         // before reporting, since the switch usually completes on its own.
-        for delay in [160_000_000, 400_000_000, 800_000_000, 1_200_000_000, 1_600_000_000, 2_000_000_000, 2_500_000_000, 3_000_000_000] as [UInt64] {
+        for delay in [160_000_000, 300_000_000, 500_000_000, 700_000_000, 1_000_000_000, 1_000_000_000, 1_500_000_000, 2_000_000_000, 2_500_000_000, 2_500_000_000] as [UInt64] {
             try? await Task.sleep(nanoseconds: delay)
             guard engine === graph, routeRecovery == attempt else { return }
             do {

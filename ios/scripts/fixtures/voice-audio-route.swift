@@ -191,8 +191,8 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         session.startFailures = 5
         var sawFailure = false
         audio.onAudioStatusChanged = { message = $0; if $0 != nil { sawFailure = true } }
-        try audio.selectRoute(pods); try? await Task.sleep(nanoseconds: 6_000_000_000)
-        precondition(audio.isEngineRunning && message == nil && !sawFailure && selected == pods, "slow Bluetooth must not report failure")
+        try audio.selectRoute(pods); try? await Task.sleep(nanoseconds: 5_000_000_000)
+         precondition(audio.isEngineRunning && message == nil && !sawFailure && selected == pods, "slow Bluetooth must not report failure")
         // A late route notification while audio is stopped restarts recovery immediately.
         session.startFailures = 99
         try audio.selectRoute("speaker"); try? await Task.sleep(nanoseconds: 1_500_000_000)
