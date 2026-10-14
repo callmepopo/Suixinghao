@@ -40,6 +40,8 @@ final class DownlinkJitter: @unchecked Sendable {
     private var lastPush: UInt64?
     // Counters since the last drain.
     private var total = 0
+    /// Samples the hardware asked for, never reset: its rate per second is the real playback pace.
+    private var pulled = 0
     private var played = 0, underruns = 0, concealed = 0, overflow = 0, trimmed = 0
     private var depthPeak = 0, gapMax: UInt64 = 0
     private var squares: Double = 0, levelSamples = 0, levelPeak = 0, levelQuiet = 0, levelClipped = 0
@@ -53,6 +55,7 @@ final class DownlinkJitter: @unchecked Sendable {
 
     /// Frames handed to the hardware since the last reset.
     var totalPlayedFrames: Int { os_unfair_lock_lock(&lock); defer { os_unfair_lock_unlock(&lock) }; return total / Self.frame }
+    var pulledSamples: Int { os_unfair_lock_lock(&lock); defer { os_unfair_lock_unlock(&lock) }; return pulled }
     var depthFrames: Int { os_unfair_lock_lock(&lock); defer { os_unfair_lock_unlock(&lock) }; return count / Self.frame }
 
     /// Forget queued audio (route change, call end); next playback prebuffers again.
@@ -121,6 +124,7 @@ final class DownlinkJitter: @unchecked Sendable {
     /// Real-time render: never allocates or blocks beyond the short unfair lock.
     func render(into out: UnsafeMutablePointer<Float>, count wanted: Int, now: UInt64) {
         os_unfair_lock_lock(&lock); defer { os_unfair_lock_unlock(&lock) }
+        pulled &+= wanted
         var i = 0
         if !buffering {
             let take = min(wanted, count)

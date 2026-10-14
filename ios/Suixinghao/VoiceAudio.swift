@@ -47,6 +47,10 @@ final class VoiceAudio {
     var isActiveCall: Bool { active }
     var isEngineRunning: Bool { engine?.isRunning == true }
     private var tapInstalled = false
+    /// Verification (build57): real playback/capture pace, logged each second during a call.
+    private let captureProbe = CaptureRateProbe()
+    private var paceTask: Task<Void, Never>?
+    private var paceAttempts = 0
     private(set) var callKitManaged = false
     private(set) var receivedFrames = 0
     private var toneBuffers = 0
@@ -130,6 +134,7 @@ final class VoiceAudio {
                 // restart recovery right away for the settled route.
                 Task { @MainActor in
                     guard let self else { return }
+                    self.paceAttempts = 0
                     self.reportSpeakerRoute()
                     if self.engine === graph, !graph.isRunning { await self.resumeAfterConfigurationChange(graph) }
                 }
@@ -144,6 +149,7 @@ final class VoiceAudio {
             guard engine === graph else { throw CancellationError() }
             if !graph.isRunning { try graph.start(); output.play() }
             reportSpeakerRoute()
+            startPaceProbe(graph)
         } catch {
             // A hangup may have stopped this graph while startup was suspended.
             guard engine === graph || engine == nil else { throw error }
@@ -166,11 +172,13 @@ final class VoiceAudio {
             throw APIError(message: "当前音频设备无法建立通话通道。")
         }
         let frames = outgoing
+        let probe = captureProbe
         frames.diagnostics.setValue("input_rate", UInt64(hardware.sampleRate))
         // Use the live hardware format explicitly. On the same engine a nil format
         // inherits the previous device's rate (15Pro log: HW 48 kHz vs tap 24 kHz after
         // leaving AirPods → start fails -10868). The converter adapts per buffer.
         let block: AVAudioNodeTapBlock = { buffer, _ in
+            probe.note(Int(buffer.frameLength), rate: buffer.format.sampleRate)
             #if DEBUG
             frames.noteInput(buffer)
             #endif
@@ -332,7 +340,42 @@ final class VoiceAudio {
         guard let engine else { return }
         Task { await resumeAfterConfigurationChange(engine) }
     }
-    private func resumeAfterConfigurationChange(_ graph: AVAudioEngine) async {
+    /// Every second: the 8 kHz downlink should be pulled ~8000 samples/s. 10-14 field data
+    /// (build56, 15Pro): after AirPods→receiver the engine kept running without a
+    /// configuration change and pulled ~74%, dropping far-end audio. Escalate per route
+    /// change: rebuild capture/output → also reset voice processing → turn it off.
+    private func startPaceProbe(_ graph: AVAudioEngine) {
+        paceTask?.cancel(); paceAttempts = 0
+        paceTask = Task { [weak self] in
+            var lastPulled = self?.jitter.pulledSamples ?? 0
+            var lastAt = DispatchTime.now().uptimeNanoseconds
+            _ = self?.captureProbe.take()
+            var off = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self, self.engine === graph else { return }
+                let now = DispatchTime.now().uptimeNanoseconds
+                let seconds = Double(now - lastAt) / 1_000_000_000
+                let pulled = self.jitter.pulledSamples
+                let pace = Int(Double(pulled &- lastPulled) / seconds)
+                let tap = self.captureProbe.take()
+                let tapPace = Int(Double(tap.frames) / seconds)
+                lastPulled = pulled; lastAt = now
+                let session = AVAudioSession.sharedInstance()
+                let output = session.currentRoute.outputs.first?.portType.rawValue ?? "none"
+                self.routeLog.notice("pace out=\(output, privacy: .public) pull=\(pace, privacy: .public) tap=\(tapPace, privacy: .public)@\(Int(tap.rate), privacy: .public) session=\(Int(session.sampleRate), privacy: .public) inHW=\(Int(graph.inputNode.inputFormat(forBus: 0).sampleRate), privacy: .public) inOut=\(Int(graph.inputNode.outputFormat(forBus: 0).sampleRate), privacy: .public) outHW=\(Int(graph.outputNode.outputFormat(forBus: 0).sampleRate), privacy: .public) vp=\(graph.inputNode.isVoiceProcessingEnabled, privacy: .public) running=\(graph.isRunning, privacy: .public)")
+                if graph.isRunning, pace > 1000, abs(pace - 8000) > 800 { off += 1 } else { off = 0 }
+                guard off >= 2, self.paceAttempts < 3 else { continue }
+                self.paceAttempts += 1; off = 0
+                let step = self.paceAttempts
+                self.routeLog.notice("pace mismatch: recovery step=\(step, privacy: .public)")
+                await self.resumeAfterConfigurationChange(graph, resetProcessing: step >= 2, disableProcessing: step >= 3)
+                lastPulled = self.jitter.pulledSamples; lastAt = DispatchTime.now().uptimeNanoseconds
+                _ = self.captureProbe.take()
+            }
+        }
+    }
+    private func resumeAfterConfigurationChange(_ graph: AVAudioEngine, resetProcessing: Bool = false, disableProcessing: Bool = false) async {
         // iOS stops the engine when the device changes. Re-install capture for the
         // new microphone format on the same graph (a new engine re-selects Bluetooth),
         // drop stale queued playback, and restart. Failures never end the call.
@@ -349,6 +392,11 @@ final class VoiceAudio {
                 player?.stop()
                 graph.stop()
                 if tapInstalled { graph.inputNode.removeTap(onBus: 0); tapInstalled = false }
+                if resetProcessing && graph.inputNode.isVoiceProcessingEnabled {
+                    try graph.inputNode.setVoiceProcessingEnabled(false)
+                    if !disableProcessing { try graph.inputNode.setVoiceProcessingEnabled(true) }
+                    routeLog.notice("voice processing \(disableProcessing ? "off" : "reset", privacy: .public)")
+                }
                 try installCapture(on: graph)
                 // Re-bind the mixer to the new hardware output rate (HFP 16/24 kHz vs 48 kHz).
                 let hardware = graph.outputNode.outputFormat(forBus: 0)
@@ -445,6 +493,7 @@ final class VoiceAudio {
         callKitManaged = false
         outgoing.enable(false); earlyMedia = false; active = false; muted = false
         routeRecovery = UUID()
+        paceTask?.cancel(); paceTask = nil
         routeTask?.cancel(); routeTask = nil; phoneOnly = nil; knownDevices = []
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         generation = UUID(); jitter.reset()
@@ -454,5 +503,18 @@ final class VoiceAudio {
         tapInstalled = false; capture = nil
         player?.stop(); player = nil; source = nil; engine = nil; playbackFormat = nil
         if wasRunning && deactivateSession && !managedByCallKit { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    }
+}
+
+/// Capture frames and rate since the last read (verification logging only).
+final class CaptureRateProbe: @unchecked Sendable {
+    private var lock = os_unfair_lock()
+    private var frames = 0, rate: Double = 0
+    func note(_ count: Int, rate: Double) {
+        os_unfair_lock_lock(&lock); frames += count; self.rate = rate; os_unfair_lock_unlock(&lock)
+    }
+    func take() -> (frames: Int, rate: Double) {
+        os_unfair_lock_lock(&lock); defer { frames = 0; os_unfair_lock_unlock(&lock) }
+        return (frames, rate)
     }
 }
