@@ -98,6 +98,12 @@ final class VoiceAudio {
         }
         let graph = AVAudioEngine()
         do {
+            // System call processing (echo cancellation, noise suppression, auto gain), as
+            // used by commercial calling apps. Must precede tap/format setup; it stays on for
+            // this graph across route recovery. If unavailable, keep the call without it.
+            do { try graph.inputNode.setVoiceProcessingEnabled(true) } catch {
+                routeLog.error("voice processing unavailable")
+            }
             let output = AVAudioPlayerNode()
             guard let downlinkFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false) else {
                 throw APIError(message: "当前音频设备无法建立通话通道。")
@@ -221,7 +227,9 @@ final class VoiceAudio {
         let diagnostics = outgoing.diagnostics
         diagnostics.setContext("route_in", input)
         diagnostics.setContext("route_out", output)
-        diagnostics.setContext("session_mode", session.mode.rawValue)
+        // ".vp" marks system call processing; the server whitelists keys, not new counters.
+        let processing = engine?.inputNode.isVoiceProcessingEnabled == true ? ".vp" : ""
+        diagnostics.setContext("session_mode", session.mode.rawValue + processing)
         diagnostics.setValue("io_buffer_us", UInt64(max(0, session.ioBufferDuration) * 1_000_000))
         diagnostics.setValue("input_latency_us", UInt64(max(0, session.inputLatency) * 1_000_000))
         diagnostics.setValue("output_latency_us", UInt64(max(0, session.outputLatency) * 1_000_000))

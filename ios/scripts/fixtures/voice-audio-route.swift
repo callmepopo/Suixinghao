@@ -114,6 +114,12 @@ final class AVAudioConverter {
 }
 class AVAudioNode {
     private(set) var tapped = false
+    // Real VPIO changes the I/O formats, so it must be enabled before capture is set up.
+    private(set) var isVoiceProcessingEnabled = false
+    func setVoiceProcessingEnabled(_ enabled: Bool) throws {
+        precondition(!tapped && tapInstalls == 0, "voice processing enabled after capture setup")
+        isVoiceProcessingEnabled = enabled
+    }
     private var block: AVAudioNodeTapBlock?
     var tapInstalls = 0
     // Real 15Pro (build48 log): on the same engine the input node's output format stays
@@ -187,6 +193,7 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         // CallKit path with AirPods connected: call starts on AirPods.
         try await audio.start(callKitManaged: true)
         let graph = AVAudioEngine.latest!
+        precondition(graph.inputNode.isVoiceProcessingEnabled, "call audio must use system voice processing")
         audio.setActiveCall(true); audio.setMuted(true)
         let pods = "device:" + AVAudioSession.pods.uid
         precondition(selected == pods && name == "Test AirPods" && routes.map(\.id) == ["receiver", "speaker", pods])
@@ -198,6 +205,7 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
             precondition(selected == id && message == nil, label + ": checkmark must follow real output")
             precondition(audio.isEngineRunning && audio.isActiveCall && audio.muted, label + ": call/mute lost")
             precondition(graph === AVAudioEngine.latest! && AVAudioEngine.created == 1, label + ": engine must not be replaced")
+            precondition(graph.inputNode.isVoiceProcessingEnabled, label + ": voice processing lost")
             precondition(AVAudioConverter.sourceRates.last == rate && audio.outgoing.captureStats().taps > taps, label + ": capture not rebound")
         }
         try await check("speaker", .builtInSpeaker, 48000, "AirPods→扬声器"); precondition(speaker)
