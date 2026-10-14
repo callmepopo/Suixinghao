@@ -1,5 +1,10 @@
 import Foundation
 
+enum ProjectLinks {
+    static let repository = URL(string: "https://github.com/callmepopo/Suixinghao")!
+    static var issues: URL { repository.appendingPathComponent("issues") }
+}
+
 enum AppVersion {
     static var current: String {
         Bundle.main.object(forInfoDictionaryKey: "SXHReleaseVersion") as? String ?? "开发构建"

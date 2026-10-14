@@ -218,6 +218,7 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         guard let call = session.takeAudioWork() else { return }
+        model?.systemAudioActivated()
         Task {
             let success: Bool
             if let number = call.number {

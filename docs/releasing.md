@@ -75,3 +75,8 @@ App0.1.9的自动开通新增登记昵称、随机NAS实例和App Attest验证�
 用户随后确认15Pro开发0.1.9/build39及SE3 TestFlight0.1.9/build40整体测试通过，逐项日志未提供；自动模式NAS真实App Attest绑定不由该反馈推定通过。用户追加授权更新GitHub并供网友组测试：公开版本为App0.1.9/build40、服务0.1.5/build6，GitHub采用prerelease；标签固定App build40原来源8623a7d，服务产物原来源eaf435a。保留旧包、旧标签与已上传产物，不重建或回改来源。对应源码及管理工具／文档同步main和develop，自动绑定验证边界明确。
 
 既有外部组17人关联build40并已提交Beta审核，Apple读回WAITING_FOR_REVIEW（提交）及WAITING_FOR_BETA_REVIEW（构建），批准前不能宣称外部可安装；旧build37保留。本轮没有提交App Store、开启公共测试链接或重发邀请。
+
+
+## 2026-10-14 音频路由开发候选
+
+App0.1.10/build41用于锁屏免提、车载蓝牙及GitHub帮助入口验证。仅开发渠道；服务维持0.1.5/build6。执行完整iOS检查、实际VoiceAudio代码的模拟路由/恢复检查、模拟器编译和开发签名核验；真机锁屏/车机效果另验，未据此合main、推GitHub或上传TestFlight。更新既有开发安装页时沿真实安装按钮验证manifest、包版本与下载SHA，保留0.1.9/build39开发包回退。正式渠道继续按上文流程，之前build40的渠道例外不自动沿用。

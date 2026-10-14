@@ -7,7 +7,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 source = (root / "Suixinghao/AppModel.swift").read_text()
 start = source.index("    func toggleSpeaker() async {")
-end = source.index("    private func releaseMedia()", start)
+end = source.index("    func selectAudioRoute", start)
 method = source[start:end]
 out = root / ".build/checks"
 out.mkdir(parents=True, exist_ok=True)

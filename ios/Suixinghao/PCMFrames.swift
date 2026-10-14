@@ -9,6 +9,14 @@ final class PCMFrames: @unchecked Sendable {
     private var pending = Data()
     private var enabled = false
     private var muted = false
+    private var captureGeneration = UUID()
+    /// Invalidate in-flight callbacks as well as queued speech when a route changes.
+    @discardableResult func resetCapture() -> UUID {
+        lock.lock(); defer { lock.unlock() }
+        captureGeneration = UUID()
+        pending.removeAll(keepingCapacity: true)
+        return captureGeneration
+    }
     #if DEBUG
     private var capturedBytes = 0
     private var nonzeroSamples = 0
@@ -39,9 +47,9 @@ final class PCMFrames: @unchecked Sendable {
         enabled = active && !muted
         if !enabled { pending.removeAll(keepingCapacity: true) }
     }
-    func append(_ data: Data) {
+    func append(_ data: Data, generation: UUID? = nil) {
         lock.lock(); defer { lock.unlock() }
-        guard enabled else { return }
+        guard enabled, generation == nil || generation == captureGeneration else { return }
         #if DEBUG
         capturedBytes += data.count
         data.withUnsafeBytes { raw in

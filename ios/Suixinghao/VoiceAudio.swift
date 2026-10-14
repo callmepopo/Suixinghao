@@ -14,7 +14,16 @@ final class VoiceAudio {
     private var playbackFormat: AVAudioFormat?
     private var scheduled = 0
     private var generation = UUID()
-    private var routeRecovery = UUID()
+    private var recoveryTask: Task<Void, Never>?
+    private var routeScope: UUID?
+    private var routePolicy = AudioRoutePolicy()
+    private var configuredRoute = ""
+    private var configuredHardware = ""
+    private var rebuilding = false
+    private var recoveryFailures = 0
+    private var initialBluetoothName: String?
+    private var sessionActivated = false
+    var onRoutesChanged: (([CallAudioRoute], String, String) -> Void)?
     private var observers: [NSObjectProtocol] = []
     var onInterrupted: (() -> Void)?
     var onSpeakerChanged: ((Bool) -> Void)?
@@ -51,9 +60,10 @@ final class VoiceAudio {
     #endif
     func start(useSpeaker: Bool? = nil, callKitManaged: Bool = false) async throws {
         guard engine == nil else { return }
-        let attempt = generation
+        if routeScope == nil { beginRouting(UUID()) }
+        let scope = routeScope
         let granted = await AVAudioApplication.requestRecordPermission()
-        guard generation == attempt else { throw CancellationError() }
+        guard routeScope == scope else { throw CancellationError() }
         guard granted else { throw APIError(message: "请在系统设置中允许随行号使用麦克风后再拨号。") }
         let session = AVAudioSession.sharedInstance()
         var options: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
@@ -62,6 +72,7 @@ final class VoiceAudio {
             try session.setCategory(.playAndRecord, mode: .default, options: options)
             try session.setPreferredIOBufferDuration(0.02)
             try session.setActive(true)
+            audioSessionActivated()
         }
         // CallKit may already have applied the user's system speaker selection.
         // Only explicit in-app choices override it; initial managed startup preserves it.
@@ -73,70 +84,39 @@ final class VoiceAudio {
         let graph = AVAudioEngine()
         do {
             let output = AVAudioPlayerNode()
-            let inputFormat = graph.inputNode.outputFormat(forBus: 0)
-            guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-                  let uplinkFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false),
-                  let downlinkFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false),
-                  let converter = AVAudioConverter(from: inputFormat, to: uplinkFormat) else {
+            guard let downlinkFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false) else {
                 throw APIError(message: "当前音频设备无法建立通话通道。")
             }
-            converter.primeMethod = .none
             graph.attach(output)
             graph.connect(output, to: graph.mainMixerNode, format: downlinkFormat)
             attachWaitingPlayer(to: graph, format: downlinkFormat)
-            let frames = outgoing
-            graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
-                #if DEBUG
-                frames.noteInput(buffer)
-                #endif
-                let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 8000 / inputFormat.sampleRate) + 64)
-                guard let converted = AVAudioPCMBuffer(pcmFormat: uplinkFormat, frameCapacity: capacity) else { return }
-                var provided = false
-                var failure: NSError?
-                let status = converter.convert(to: converted, error: &failure) { _, state in
-                    if provided { state.pointee = .noDataNow; return nil }
-                    provided = true; state.pointee = .haveData; return buffer
-                }
-                if failure == nil, status != .error, let channel = converted.int16ChannelData?[0] {
-                    frames.append(Data(bytes: channel, count: Int(converted.frameLength) * 2))
-                } else {
-                    #if DEBUG
-                    frames.noteConversionFailure()
-                    #endif
-                }
-            }
-            tapInstalled = true
+            try installCapture(on: graph)
             engine = graph; player = output; playbackFormat = downlinkFormat
             self.callKitManaged = callKitManaged
             earlyMedia = false; active = false; muted = false; outgoing.enable(false)
             generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
-            observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
-                guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                      raw == AVAudioSession.InterruptionType.began.rawValue else { return }
-                Task { @MainActor in self?.onInterrupted?() }
-            })
-            observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
-                let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-                Task { @MainActor in
-                    self?.reportSpeakerRoute()
-                    if raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
-                        self?.onInterrupted?()
-                    }
+            observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self, weak graph] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let graph, self.engine === graph, self.routeScope == scope else { return }
+                    self.scheduleRouteRecovery(graph)
                 }
-            })
-            observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self] _ in
-                Task { @MainActor in await self?.resumeAfterConfigurationChange(graph) }
             })
             graph.prepare()
             try graph.start()
+            configuredRoute = routeSignature(graph)
+            configuredHardware = hardwareSignature(graph)
             output.play()
             try await Task.sleep(nanoseconds: 120_000_000)
-            guard engine === graph else { throw CancellationError() }
-            if !graph.isRunning { try graph.start(); output.play() }
+            guard engine === graph, routeScope == scope else { throw CancellationError() }
+            if !graph.isRunning { try rebuildRoute(graph) }
+            scheduleRouteRecovery(graph)
             reportSpeakerRoute()
         } catch {
             // A hangup may have stopped this graph while startup was suspended.
-            guard engine === graph || engine == nil else { throw error }
+            guard routeScope == scope, engine === graph || engine == nil else { throw error }
+            recoveryTask?.cancel(); recoveryTask = nil
+            routeScope = nil
+            outgoing.resetCapture()
             observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
             if tapInstalled { graph.inputNode.removeTap(onBus: 0); tapInstalled = false }
             graph.stop()
@@ -147,33 +127,209 @@ final class VoiceAudio {
             throw error
         }
     }
-    private func reportSpeakerRoute() {
-        let speaker = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
-        onSpeakerChanged?(speaker)
+    /// Called before CallKit configures/activates audio, so lock-screen choices made
+    /// while authentication/media setup is in flight are not missed.
+    func beginRouting(_ scope: UUID) {
+        guard routeScope != scope else { return }
+        observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
+        recoveryTask?.cancel(); recoveryTask = nil
+        routeScope = scope; routePolicy = AudioRoutePolicy(); configuredRoute = ""; sessionActivated = false
+        configuredHardware = ""
+        recoveryFailures = 0
+        initialBluetoothName = AVAudioSession.sharedInstance().currentRoute.outputs.first {
+            $0.portType == .bluetoothA2DP || $0.portType == .bluetoothHFP
+        }?.portName
+        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            // Capture at notification time, not after a later route has replaced it.
+            let output = Self.outputKind(AVAudioSession.sharedInstance())
+            MainActor.assumeIsolated {
+                guard let self, self.routeScope == scope else { return }
+                if reason == .override { self.routePolicy.selected(output) }
+                else if self.sessionActivated && (reason == .newDeviceAvailable || reason == .oldDeviceUnavailable) {
+                    self.routePolicy.deviceChanged(to: output)
+                }
+                self.reportSpeakerRoute()
+                if let graph = self.engine { self.scheduleRouteRecovery(graph) }
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  raw == AVAudioSession.InterruptionType.began.rawValue else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.routeScope == scope else { return }
+                self.onInterrupted?()
+            }
+        })
     }
-    func setSpeaker(_ enabled: Bool) throws {
-        guard engine != nil else { throw APIError(message: "声音通道尚未就绪。") }
-        // Preserve CallKit activation and the existing input tap/converter.
-        // The configuration-change observer resumes the same graph if iOS pauses it.
-        try AVAudioSession.sharedInstance().overrideOutputAudioPort(enabled ? .speaker : .none)
+
+    nonisolated private static func outputKind(_ session: AVAudioSession) -> AudioRoutePolicy.Output {
+        let ports = session.currentRoute.outputs
+        if ports.contains(where: { $0.portType == .builtInSpeaker }) { return .speaker }
+        if ports.contains(where: { $0.portType == .builtInReceiver }) { return .receiver }
+        return ports.isEmpty ? .unavailable : .external
+    }
+
+    /// CallKit owns activation. Prefer an available HFP device once, only if the
+    /// system has left us on the receiver and the user has not chosen a route.
+    func audioSessionActivated() {
+        guard routeScope != nil else { return }
+        let session = AVAudioSession.sharedInstance()
+        let current = Self.outputKind(session)
+        if current == .speaker { routePolicy.selected(.speaker) }
+        let candidates = (session.availableInputs ?? []).filter { $0.portType == .bluetoothHFP }
+        let bluetooth = candidates.first { $0.portName == initialBluetoothName } ?? (candidates.count == 1 ? candidates.first : nil)
+        if routePolicy.shouldSelectInitialBluetooth(current: current, available: bluetooth != nil), let bluetooth {
+            do { try session.setPreferredInput(bluetooth) }
+            catch { /* Keep the usable system route; the in-call menu permits retry. */ }
+        }
+        sessionActivated = true
         reportSpeakerRoute()
     }
-    private func resumeAfterConfigurationChange(_ graph: AVAudioEngine) async {
-        // iOS can consume queued buffers while rebuilding the output route without playing them.
-        // Drop that queue after the route settles, then resume new incoming frames.
-        let attempt = UUID()
-        routeRecovery = attempt
-        try? await Task.sleep(nanoseconds: 160_000_000)
-        guard engine === graph, routeRecovery == attempt else { return }
-        do {
-            generation = UUID()
-            scheduled = 0
-            player?.stop()
-            if !graph.isRunning { try graph.start() }
-            player?.play()
-            reportSpeakerRoute()
+
+    private func reportSpeakerRoute() {
+        let session = AVAudioSession.sharedInstance()
+        let speaker = Self.outputKind(session) == .speaker
+        onSpeakerChanged?(speaker)
+        let inputs = session.availableInputs ?? []
+        var routes = [CallAudioRoute(id: "speaker", name: "扬声器", symbol: "speaker.wave.2.fill")]
+        for input in inputs {
+            let phone = input.portType == .builtInMic
+            routes.append(CallAudioRoute(id: "input:" + input.uid, name: phone ? "iPhone 听筒" : input.portName,
+                                         symbol: phone ? "iphone" : "headphones"))
         }
-        catch { onInterrupted?() }
+        let selected = speaker ? "speaker" : session.currentRoute.inputs.first.map { "input:" + $0.uid } ?? ""
+        let name = speaker ? "扬声器" : (Self.outputKind(session) == .receiver ? "iPhone 听筒" : session.currentRoute.outputs.first?.portName ?? "等待声音设备")
+        onRoutesChanged?(routes, selected, name)
+    }
+
+    func selectRoute(_ id: String) throws {
+        guard engine != nil else { throw APIError(message: "声音通道尚未就绪。") }
+        let session = AVAudioSession.sharedInstance()
+        if id == "speaker" {
+            try session.overrideOutputAudioPort(.speaker)
+            routePolicy.selected(.speaker)
+        } else {
+            guard let input = session.availableInputs?.first(where: { "input:" + $0.uid == id }) else {
+                throw APIError(message: "该声音设备已断开，请重新选择。")
+            }
+            try session.overrideOutputAudioPort(.none)
+            try session.setPreferredInput(input)
+            routePolicy.selected(input.portType == .builtInMic ? .receiver : .external)
+        }
+        reportSpeakerRoute()
+        if let graph = engine { scheduleRouteRecovery(graph) }
+    }
+
+    func setSpeaker(_ enabled: Bool) throws {
+        if enabled { try selectRoute("speaker") }
+        else if let input = AVAudioSession.sharedInstance().availableInputs?.first(where: { $0.portType == .builtInMic }) {
+            try selectRoute("input:" + input.uid)
+        } else { throw APIError(message: "听筒暂不可用，请选择其他声音设备。") }
+    }
+
+    private func installCapture(on graph: AVAudioEngine) throws {
+        let inputFormat = graph.inputNode.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
+              let uplink = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false),
+              let converter = AVAudioConverter(from: inputFormat, to: uplink) else {
+            throw APIError(message: "当前音频设备无法建立通话通道。")
+        }
+        converter.primeMethod = .none
+        let frames = outgoing
+        let capture = frames.resetCapture()
+        graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
+            #if DEBUG
+            frames.noteInput(buffer)
+            #endif
+            let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 8000 / inputFormat.sampleRate) + 64)
+            guard let converted = AVAudioPCMBuffer(pcmFormat: uplink, frameCapacity: capacity) else { return }
+            var provided = false
+            var failure: NSError?
+            let status = converter.convert(to: converted, error: &failure) { _, state in
+                if provided { state.pointee = .noDataNow; return nil }
+                provided = true; state.pointee = .haveData; return buffer
+            }
+            if failure == nil, status != .error, let channel = converted.int16ChannelData?[0] {
+                frames.append(Data(bytes: channel, count: Int(converted.frameLength) * 2), generation: capture)
+            } else {
+                #if DEBUG
+                frames.noteConversionFailure()
+                #endif
+            }
+        }
+        tapInstalled = true
+    }
+
+    private func routeSignature(_ graph: AVAudioEngine) -> String {
+        let session = AVAudioSession.sharedInstance()
+        return hardwareSignature(graph) + "/" + session.currentRoute.outputs.map { $0.uid + $0.portType.rawValue }.joined(separator: "/")
+    }
+
+    private func hardwareSignature(_ graph: AVAudioEngine) -> String {
+        let session = AVAudioSession.sharedInstance()
+        let input = graph.inputNode.outputFormat(forBus: 0)
+        let output = graph.outputNode.inputFormat(forBus: 0)
+        return "\(input.sampleRate)/\(input.channelCount)/\(output.sampleRate)/\(output.channelCount)/" +
+            session.currentRoute.inputs.map { $0.uid + $0.portType.rawValue }.joined(separator: "/")
+    }
+
+    private func scheduleRouteRecovery(_ graph: AVAudioEngine) {
+        guard engine === graph, !rebuilding, recoveryFailures < 3 else { return }
+        let lostSpeaker = routePolicy.selection == .speaker && Self.outputKind(AVAudioSession.sharedInstance()) == .receiver
+        guard !graph.isRunning || configuredRoute != routeSignature(graph) || lostSpeaker else { return }
+        recoveryTask?.cancel()
+        let scope = routeScope
+        recoveryTask = Task { [weak self, weak graph] in
+            for _ in 0..<3 {
+                do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+                guard let self, let graph, self.routeScope == scope, self.engine === graph, !Task.isCancelled else { return }
+                do {
+                    // Repair a lost temporary override once; an explicit system choice
+                    // or device removal updates policy before this debounced operation.
+                    let session = AVAudioSession.sharedInstance()
+                    if self.routePolicy.shouldRepairSpeaker(current: Self.outputKind(session)) {
+                        try session.overrideOutputAudioPort(.speaker)
+                        continue // Let the hardware settle before rebuilding capture.
+                    }
+                    try self.rebuildRoute(graph)
+                    return
+                } catch {
+                    // Count across notification rescheduling too, so events caused by
+                    // a failed rebuild cannot renew the retry budget indefinitely.
+                    self.recoveryFailures += 1
+                    if self.recoveryFailures >= 3 { break }
+                }
+            }
+            guard let self, let graph, self.engine === graph, self.routeScope == scope, !Task.isCancelled else { return }
+            self.onInterrupted?()
+        }
+    }
+
+    private func rebuildRoute(_ graph: AVAudioEngine) throws {
+        rebuilding = true
+        defer { rebuilding = false }
+        let resumeTone = waitingTone
+        generation = UUID(); scheduled = 0
+        player?.stop(); waitingPlayer?.stop()
+        if !tapInstalled || configuredHardware != hardwareSignature(graph) {
+            outgoing.resetCapture()
+            graph.stop()
+            if tapInstalled { graph.inputNode.removeTap(onBus: 0); tapInstalled = false }
+            // HFP/USB may change input format. Plain receiver↔speaker switching
+            // keeps its valid tap/converter and must not rebuild the I/O graph.
+            try installCapture(on: graph)
+            graph.disconnectNodeOutput(graph.mainMixerNode)
+            graph.connect(graph.mainMixerNode, to: graph.outputNode, format: nil)
+            graph.prepare()
+        }
+        if !graph.isRunning { try graph.start() }
+        recoveryFailures = 0
+        configuredRoute = routeSignature(graph)
+        configuredHardware = hardwareSignature(graph)
+        player?.play()
+        if resumeTone { waitingTone = false; setWaitingTone(true) }
+        reportSpeakerRoute()
     }
     private func attachWaitingPlayer(to graph: AVAudioEngine, format: AVAudioFormat) {
         let node = AVAudioPlayerNode()
@@ -250,7 +406,10 @@ final class VoiceAudio {
         let managedByCallKit = callKitManaged
         callKitManaged = false
         outgoing.enable(false); earlyMedia = false; active = false; muted = false
-        routeRecovery = UUID()
+        recoveryTask?.cancel(); recoveryTask = nil
+        routeScope = nil; routePolicy = AudioRoutePolicy(); configuredRoute = ""; sessionActivated = false
+        configuredHardware = ""
+        outgoing.resetCapture()
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         generation = UUID(); scheduled = 0
         let wasRunning = engine != nil

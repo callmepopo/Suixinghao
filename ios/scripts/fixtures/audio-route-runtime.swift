@@ -1,0 +1,192 @@
+// Deterministic audio/session doubles. No microphone, network, CallKit or modem.
+import Foundation
+
+typealias AVAudioFrameCount = UInt32
+let AVAudioSessionRouteChangeReasonKey = "route-reason"
+let AVAudioSessionInterruptionTypeKey = "interruption-type"
+extension Notification.Name { static let AVAudioEngineConfigurationChange = Self("engine-config") }
+final class AVAudioSession {
+    struct Port: Equatable {
+        let rawValue: String
+        static let builtInSpeaker = Self(rawValue: "speaker"), builtInReceiver = Self(rawValue: "receiver")
+        static let builtInMic = Self(rawValue: "mic"), bluetoothHFP = Self(rawValue: "hfp"), bluetoothA2DP = Self(rawValue: "a2dp")
+    }
+    struct PortDescription { let uid: String; let portType: Port; let portName: String }
+    struct Route { var inputs: [PortDescription]; var outputs: [PortDescription] }
+    enum RouteChangeReason: UInt { case unknown, newDeviceAvailable, oldDeviceUnavailable, categoryChange, override, routeConfigurationChange }
+    enum InterruptionType: UInt { case began }
+    enum Category { case playback, playAndRecord }
+    enum Mode { case `default` }
+    struct CategoryOptions: OptionSet {
+        let rawValue: Int
+        static let allowBluetoothHFP = Self(rawValue: 1), defaultToSpeaker = Self(rawValue: 2)
+    }
+    enum PortOverride { case speaker, none }
+    struct SetActiveOptions: OptionSet { let rawValue: Int; static let notifyOthersOnDeactivation = Self(rawValue: 1) }
+    static let routeChangeNotification = Notification.Name("route"), interruptionNotification = Notification.Name("interrupt")
+    static let value = AVAudioSession()
+    static func sharedInstance() -> AVAudioSession { value }
+    static let mic = PortDescription(uid: "phone", portType: .builtInMic, portName: "Phone")
+    static let car = PortDescription(uid: "synthetic-car", portType: .bluetoothHFP, portName: "Test car")
+    var availableInputs: [PortDescription]? = [mic, car]
+    var currentRoute = Route(inputs: [mic], outputs: [PortDescription(uid: "receiver", portType: .builtInReceiver, portName: "Phone")])
+    var hardwareRate = 48000.0
+    var preferredRequests = 0, overrideRequests = 0
+    var startFailures = 0
+    var activeCalls = 0
+    func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws {}
+    func setPreferredIOBufferDuration(_ value: Double) throws {}
+    func setActive(_ value: Bool, options: SetActiveOptions = []) throws { activeCalls += 1 }
+    func setPreferredInput(_ port: PortDescription?) throws {
+        preferredRequests += 1
+        route(port?.portType == .bluetoothHFP ? .external : .receiver, reason: .override)
+    }
+    func overrideOutputAudioPort(_ port: PortOverride) throws {
+        overrideRequests += 1
+        route(port == .speaker ? .speaker : .receiver, reason: .override)
+    }
+    func route(_ kind: AudioRoutePolicy.Output, reason: RouteChangeReason) {
+        switch kind {
+        case .speaker: currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "speaker", portType: .builtInSpeaker, portName: "Speaker")]); hardwareRate = 48000
+        case .receiver: currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "receiver", portType: .builtInReceiver, portName: "Phone")]); hardwareRate = 48000
+        case .external: currentRoute = Route(inputs: [Self.car], outputs: [Self.car]); hardwareRate = 16000
+        case .unavailable: currentRoute = Route(inputs: [], outputs: []); hardwareRate = 0
+        }
+        NotificationCenter.default.post(name: Self.routeChangeNotification, object: self, userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
+    }
+    func reset() {
+        availableInputs = [Self.mic, Self.car]; preferredRequests = 0; overrideRequests = 0; activeCalls = 0; startFailures = 0
+        route(.receiver, reason: .unknown)
+    }
+}
+enum AVAudioApplication { static func requestRecordPermission() async -> Bool { true } }
+enum AVAudioCommonFormat { case pcmFormatFloat32, pcmFormatInt16 }
+final class AVAudioFormat {
+    let sampleRate: Double, channelCount: UInt32
+    init?(commonFormat: AVAudioCommonFormat, sampleRate: Double, channels: UInt32, interleaved: Bool) { self.sampleRate = sampleRate; channelCount = channels }
+}
+final class AVAudioPCMBuffer {
+    var frameLength: UInt32 = 0
+    private let floats: UnsafeMutablePointer<Float>, ints: UnsafeMutablePointer<Int16>
+    private let floatChannels: UnsafeMutablePointer<UnsafeMutablePointer<Float>>, intChannels: UnsafeMutablePointer<UnsafeMutablePointer<Int16>>
+    var floatChannelData: UnsafePointer<UnsafeMutablePointer<Float>>? { UnsafePointer(floatChannels) }
+    var int16ChannelData: UnsafePointer<UnsafeMutablePointer<Int16>>? { UnsafePointer(intChannels) }
+    init?(pcmFormat: AVAudioFormat, frameCapacity: UInt32) {
+        floats = .allocate(capacity: Int(frameCapacity)); floats.initialize(repeating: 0, count: Int(frameCapacity))
+        ints = .allocate(capacity: Int(frameCapacity)); ints.initialize(repeating: 0, count: Int(frameCapacity))
+        floatChannels = .allocate(capacity: 1); floatChannels.initialize(to: floats)
+        intChannels = .allocate(capacity: 1); intChannels.initialize(to: ints)
+    }
+    deinit { floats.deallocate(); ints.deallocate(); floatChannels.deallocate(); intChannels.deallocate() }
+}
+final class AVAudioConverter {
+    enum PrimeMethod { case none }
+    enum InputStatus { case noDataNow, haveData }
+    enum OutputStatus { case error, haveData }
+    static var sourceRates: [Double] = []
+    var primeMethod = PrimeMethod.none
+    init?(from: AVAudioFormat, to: AVAudioFormat) { Self.sourceRates.append(from.sampleRate) }
+    func convert(to: AVAudioPCMBuffer, error: inout NSError?, withInputFrom: (UInt32, UnsafeMutablePointer<InputStatus>) -> AVAudioPCMBuffer?) -> OutputStatus { .haveData }
+}
+class AVAudioNode {
+    func outputFormat(forBus: Int) -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AVAudioSession.value.hardwareRate, channels: 1, interleaved: false)! }
+    func inputFormat(forBus: Int) -> AVAudioFormat { outputFormat(forBus: forBus) }
+    func installTap(onBus: Int, bufferSize: UInt32, format: AVAudioFormat, block: @escaping (AVAudioPCMBuffer, Int) -> Void) {}
+    func removeTap(onBus: Int) {}
+}
+final class AVAudioPlayerNode: AVAudioNode {
+    enum CompletionCallbackType { case dataPlayedBack }
+    struct BufferOptions: OptionSet { let rawValue: Int; static let loops = Self(rawValue: 1) }
+    func scheduleBuffer(_ buffer: AVAudioPCMBuffer, completionCallbackType: CompletionCallbackType, completionHandler: @escaping (Int) -> Void) {}
+    func scheduleBuffer(_ buffer: AVAudioPCMBuffer, at: Int?, options: BufferOptions, completionHandler: (() -> Void)?) {}
+    func play() {}; func stop() {}
+}
+final class AVAudioEngine: NSObject, @unchecked Sendable {
+    static var latest: AVAudioEngine?
+    let inputNode = AVAudioNode(), outputNode = AVAudioNode(), mainMixerNode = AVAudioNode()
+    var isRunning = false, starts = 0
+    override init() { super.init(); Self.latest = self }
+    func attach(_ node: AVAudioNode) {}
+    func connect(_ node: AVAudioNode, to: AVAudioNode, format: AVAudioFormat?) {}
+    func disconnectNodeOutput(_ node: AVAudioNode) {}
+    func prepare() {}
+    func start() throws {
+        if AVAudioSession.value.startFailures > 0 { AVAudioSession.value.startFailures -= 1; throw APIError(message: "Synthetic transient route") }
+        isRunning = true; starts += 1
+    }
+    func stop() { isRunning = false }
+    func configurationChanged() { isRunning = false; NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: self) }
+}
+struct APIError: LocalizedError { let message: String; var errorDescription: String? { message } }
+
+@main struct AudioRouteRuntimeChecks {
+    @MainActor static func settle() async { try? await Task.sleep(nanoseconds: 800_000_000) }
+    @MainActor static func main() async throws {
+        let session = AVAudioSession.value
+        session.reset()
+        let audio = VoiceAudio()
+        var failures = 0
+        audio.onInterrupted = { failures += 1 }
+        var routes: [CallAudioRoute] = []
+        audio.onRoutesChanged = { list, _, _ in routes = list }
+        audio.beginRouting(UUID())
+        audio.audioSessionActivated()
+        precondition(session.currentRoute.outputs.first?.portType == .bluetoothHFP)
+        try await audio.start(callKitManaged: true)
+        let graph = AVAudioEngine.latest!
+        precondition(AVAudioConverter.sourceRates.last == 16000)
+        precondition(routes.contains { $0.id == "input:synthetic-car" })
+        audio.setActiveCall(true); audio.setMuted(true)
+        session.route(.speaker, reason: .override); graph.configurationChanged()
+        await settle()
+        precondition(audio.isEngineRunning && audio.muted && audio.isActiveCall && failures == 0)
+        precondition(AVAudioConverter.sourceRates.last == 48000)
+        let convertersBeforeSpeaker = AVAudioConverter.sourceRates.count
+        // Internal reconfiguration loses the temporary speaker override.
+        session.route(.receiver, reason: .routeConfigurationChange); graph.configurationChanged()
+        await settle()
+        precondition(session.currentRoute.outputs.first?.portType == .builtInSpeaker)
+        // Explicit CallKit receiver selection wins over remembered speaker.
+        session.route(.receiver, reason: .override); graph.configurationChanged()
+        await settle()
+        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver)
+        precondition(AVAudioConverter.sourceRates.count == convertersBeforeSpeaker)
+        // HFP reselect and device removal keep the call and its mute state.
+        try audio.selectRoute("input:synthetic-car"); graph.configurationChanged()
+        await settle()
+        precondition(AVAudioConverter.sourceRates.last == 16000 && audio.muted)
+        session.availableInputs = [AVAudioSession.mic]
+        session.route(.receiver, reason: .oldDeviceUnavailable); graph.configurationChanged()
+        await settle()
+        precondition(audio.isEngineRunning && audio.isActiveCall && failures == 0)
+        do { try audio.selectRoute("input:synthetic-car"); preconditionFailure("Missing device accepted") } catch {}
+        precondition(audio.isEngineRunning)
+        // One transient engine failure retries and preserves early-media waiting tone.
+        audio.setActiveCall(false); audio.setWaitingTone(true)
+        session.startFailures = 1
+        graph.configurationChanged(); await settle()
+        precondition(audio.isEngineRunning && audio.isWaitingTone && !audio.isActiveCall && audio.muted && failures == 0)
+        // Terminal recovery is bounded and emits one failure.
+        session.startFailures = 10
+        graph.configurationChanged(); await settle()
+        precondition(failures == 1)
+        audio.stop()
+        session.reset()
+        audio.beginRouting(UUID()); session.route(.speaker, reason: .override)
+        audio.audioSessionActivated()
+        precondition(session.preferredRequests == 0)
+        try await audio.start(callKitManaged: true)
+        let newGraph = AVAudioEngine.latest!
+        // A cancelled recovery from the previous call cannot stop or rebuild this one.
+        newGraph.configurationChanged(); audio.stop()
+        audio.beginRouting(UUID()); audio.audioSessionActivated()
+        try await audio.start(callKitManaged: true)
+        let newest = AVAudioEngine.latest!
+        let count = newest.starts
+        graph.configurationChanged(); newGraph.configurationChanged(); await settle()
+        precondition(audio.isEngineRunning && newest.starts == count && failures == 1)
+        precondition(session.activeCalls == 0) // Only CallKit owns activation/deactivation.
+        audio.stop()
+        print("通过：实际VoiceAudio代码模拟HFP接入/采样率变化、系统免提回退修复、手动听筒优先、蓝牙断开续通话、暂态重试/超限、等待音/静音保留、旧引擎/任务隔离；无硬件实证")
+    }
+}

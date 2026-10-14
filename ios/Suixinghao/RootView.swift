@@ -108,8 +108,17 @@ struct PhoneView: View {
                                 if owned {
                                     HStack {
                                         Button { model.toggleMute() } label: { Label(model.muted ? "取消静音" : "静音", systemImage: model.muted ? "mic.slash.fill" : "mic.fill") }
-                                        Button { Task { await model.toggleSpeaker() } } label: { Label(model.speakerEnabled ? "听筒" : "扬声器", systemImage: "speaker.wave.2.fill") }
+                                        Menu {
+                                            ForEach(model.audioRoutes) { route in
+                                                Button { model.selectAudioRoute(route.id) } label: {
+                                                    Label(route.name, systemImage: model.selectedAudioRoute == route.id ? "checkmark" : route.symbol)
+                                                }
+                                            }
+                                        } label: { Label("声音设备", systemImage: "speaker.wave.2.fill") }
+                                            .disabled(!model.mediaConnected || model.callBusy)
                                     }.buttonStyle(.bordered)
+                                    Text("当前声音：" + model.audioRouteName)
+                                        .font(.footnote).foregroundStyle(.secondary)
                                     #if DEBUG
                                     Text(model.audioDiagnostics)
                                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -640,6 +649,18 @@ struct SettingsView: View {
                             .disabled(model.busy || model.callBusy || model.ownedCallID != nil)
                         #endif
                     }
+                }
+                Section("项目与帮助") {
+                    Link(destination: ProjectLinks.repository) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("GitHub 项目", systemImage: "link")
+                            Text(ProjectLinks.repository.absoluteString).font(.footnote)
+                                .foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                    }
+                    Link("查看常见问题与反馈（Issues）", destination: ProjectLinks.issues)
+                    Text("可在项目说明中查看部署、配置与排障方法；反馈问题前请隐藏服务地址、Key、号码和短信内容。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("锁屏推送") {
                     LabeledContent("手机推送登记", value: model.voipRegistrationState)

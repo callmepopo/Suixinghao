@@ -48,6 +48,9 @@ final class AppModel {
     var callBusy = false
     var muted = false
     var speakerEnabled = false
+    var audioRoutes: [CallAudioRoute] = []
+    var selectedAudioRoute = ""
+    var audioRouteName = "等待声音设备"
     var ownedCallID: String?
     var callStartedAt: Date?
     var statusFresh = false
@@ -119,12 +122,18 @@ final class AppModel {
             Task { @MainActor in await self.endCall(reason: message) }
         }
         audio.onInterrupted = { [weak self] in
+            let callID = self?.ownedCallID
+            let systemID = self?.systemCallUUID
             Task { @MainActor in
-                guard let self, self.mediaConnected || self.ownedCallID != nil else { return }
+                guard let self, self.ownedCallID == callID, self.systemCallUUID == systemID,
+                      self.mediaConnected || self.ownedCallID != nil else { return }
                 await self.endCall(reason: "音频设备发生变化，本次通话已结束，请重新拨打。")
             }
         }
         audio.onSpeakerChanged = { [weak self] value in self?.speakerEnabled = value }
+        audio.onRoutesChanged = { [weak self] routes, selected, name in
+            self?.audioRoutes = routes; self?.selectedAudioRoute = selected; self?.audioRouteName = name
+        }
         voip = VoIPCalls(model: self)
         telemetry.canUpload = { [weak self] in self?.canSyncHistory == true }
         telemetry.onUpload = { [weak self] in self?.scheduleHistoryUpload() }
@@ -1047,12 +1056,14 @@ final class AppModel {
         #endif
     }
     func beginSystemCall(_ uuid: UUID) {
+        audio.beginRouting(uuid)
         systemCallUUID = uuid
         systemCallActive = true
         systemCallPreparing = true
         telemetry.resume(); telemetry.network(available: networkAvailable, changed: false)
         historyUploadTask?.cancel()
     }
+    func systemAudioActivated() { audio.audioSessionActivated() }
     func systemCallFinished(_ uuid: UUID, remoteID: String?, stopRemote: Bool) {
         guard systemCallUUID == nil || systemCallUUID == uuid else { return }
         let id = remoteID ?? ownedCallID
@@ -1241,12 +1252,18 @@ final class AppModel {
             notice = "声音输出切换失败，请重试。"
         }
     }
+    func selectAudioRoute(_ id: String) {
+        guard !callBusy, mediaConnected, ownedCallID != nil else { return }
+        do { try audio.selectRoute(id) }
+        catch { notice = "声音设备切换失败，请确认蓝牙已连接后重试。" }
+    }
     private func releaseMedia() {
         if let ownedCallID { finishCallRecord(id: ownedCallID) }
         dialingStage = ""
         transport.close(); audio.stop()
         mediaConnected = false; ownedCallID = nil; callStartedAt = nil
         muted = false; speakerEnabled = false
+        audioRoutes = []; selectedAudioRoute = ""; audioRouteName = "等待声音设备"
         if systemCallActive {
             systemCallActive = false; systemCallPreparing = false; systemCallUUID = nil
             answeringSystemCallID = nil
