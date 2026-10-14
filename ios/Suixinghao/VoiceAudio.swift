@@ -104,7 +104,13 @@ final class VoiceAudio {
             })
             observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 // Removing AirPods falls back to the phone; the config-change path restores audio.
-                Task { @MainActor in self?.reportSpeakerRoute() }
+                // Bluetooth HFP can finish connecting seconds later: if audio is still stopped,
+                // restart recovery right away for the settled route.
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.reportSpeakerRoute()
+                    if self.engine === graph, !graph.isRunning { await self.resumeAfterConfigurationChange(graph) }
+                }
             })
             observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self] _ in
                 Task { @MainActor in await self?.resumeAfterConfigurationChange(graph) }
@@ -219,7 +225,9 @@ final class VoiceAudio {
         // drop stale queued playback, and restart. Failures never end the call.
         let attempt = UUID()
         routeRecovery = attempt
-        for delay in [160_000_000, 400_000_000, 800_000_000, 1_500_000_000] as [UInt64] {
+        // AirPods/car HFP links often need several seconds; keep retrying quietly (~12 s)
+        // before reporting, since the switch usually completes on its own.
+        for delay in [160_000_000, 400_000_000, 800_000_000, 1_200_000_000, 1_600_000_000, 2_000_000_000, 2_500_000_000, 3_000_000_000] as [UInt64] {
             try? await Task.sleep(nanoseconds: delay)
             guard engine === graph, routeRecovery == attempt else { return }
             do {

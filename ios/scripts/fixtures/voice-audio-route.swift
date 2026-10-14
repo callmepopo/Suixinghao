@@ -185,17 +185,27 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         graph.stop()
         NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
         await settle(); precondition(audio.isEngineRunning)
-        // Transient start failures recover; persistent failure only reports, never ends the call.
+        // Slow AirPods link (build47 field report): ~4 s of start failures must recover
+        // without ever showing the failure message.
         session.availableInputs = [AVAudioSession.mic, AVAudioSession.pods]
-        session.startFailures = 2
-        try audio.selectRoute(pods); try? await Task.sleep(nanoseconds: 2_000_000_000)
-        precondition(audio.isEngineRunning && message == nil && selected == pods)
+        session.startFailures = 5
+        var sawFailure = false
+        audio.onAudioStatusChanged = { message = $0; if $0 != nil { sawFailure = true } }
+        try audio.selectRoute(pods); try? await Task.sleep(nanoseconds: 6_000_000_000)
+        precondition(audio.isEngineRunning && message == nil && !sawFailure && selected == pods, "slow Bluetooth must not report failure")
+        // A late route notification while audio is stopped restarts recovery immediately.
         session.startFailures = 99
-        try audio.selectRoute("speaker"); try? await Task.sleep(nanoseconds: 3_500_000_000)
+        try audio.selectRoute("speaker"); try? await Task.sleep(nanoseconds: 1_500_000_000)
+        precondition(!audio.isEngineRunning && message == nil)
+        session.startFailures = 0
+        session.apply(.override); await settle()
+        precondition(audio.isEngineRunning && message == nil && selected == "speaker" && !sawFailure, "late route change must resume")
+        session.startFailures = 99
+        try audio.selectRoute(pods); try? await Task.sleep(nanoseconds: 13_500_000_000)
         precondition(!audio.isEngineRunning && audio.isActiveCall && message?.contains("通话仍保留") == true)
         session.startFailures = 0
         audio.retryAudio(); await settle()
-        precondition(audio.isEngineRunning && message == nil && selected == "speaker")
+        precondition(audio.isEngineRunning && message == nil && selected == pods)
         // Old-graph notifications cannot touch the next call.
         audio.stop()
         precondition(!graph.inputNode.tapped)
