@@ -22,6 +22,8 @@ Your server stores Apple push notification tokens with the authorization for you
 
 Connection diagnostics on your phone and server contain status, timestamps, counts, signal information and numerical audio transport measurements. They are used for reliability and troubleshooting, not advertising. They exclude SMS text, phone numbers, raw credentials and recorded speech. The supplied server keeps connection events for at most 30 days, subject to size limits; numerical call diagnostics and backups are managed by your server operator.
 
+Development builds may also keep up to 96 local audio-route diagnostic events in the app cache. These contain standard port types, session options, running state and elapsed times, without device names or identifiers, credentials, phone numbers or audio. They are not uploaded. The oldest events are replaced, iOS may remove cached data, and this route file is disabled in release builds.
+
 ## Optional automatic push enrollment
 
 If your NAS administrator requests automatic enrollment and you confirm in the official app, the publisher stores your chosen label, a random NAS instance identifier and public key, the push environment, issuance and expiration times, and authorization lifecycle records. The label is self-reported; no real name or email is required and enrollment is not automatically matched to a TestFlight email. Apple App Attest verifies the application; the publisher retains its opaque proof key identifier, public key and assertion counter for verification and binding limits. Apple processes the attestation under its policies. No NAS administrator password, phone App Key or hardware serial is sent to the publisher.

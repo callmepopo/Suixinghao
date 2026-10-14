@@ -15,4 +15,4 @@ subprocess.run(['xcrun', 'swiftc', '-D', 'DEBUG', '-module-cache-path', str(out 
                 str(out / 'VoiceAudio.swift'), str(out / 'PCMFrames.swift'), str(out / 'PCMInputConverter.swift'),
                 str(root / 'Suixinghao/AudioRoutePolicy.swift'), str(root / 'Suixinghao/VoiceSendLoop.swift'),
                 str(root / 'scripts/fixtures/audio-route-runtime.swift'), '-o', str(out / 'check')], env=env, check=True)
-subprocess.run([str(out / 'check')], check=True, timeout=60)
+subprocess.run([str(out / 'check')], check=True, timeout=90)
