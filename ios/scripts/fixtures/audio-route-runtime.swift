@@ -17,10 +17,10 @@ final class AVAudioSession {
     enum RouteChangeReason: UInt { case unknown, newDeviceAvailable, oldDeviceUnavailable, categoryChange, override, routeConfigurationChange }
     enum InterruptionType: UInt { case began, ended }
     enum Category { case playback, playAndRecord }
-    enum Mode { case `default` }
+    enum Mode { case `default`, voiceChat }
     struct CategoryOptions: OptionSet {
         let rawValue: Int
-        static let allowBluetoothHFP = Self(rawValue: 1), defaultToSpeaker = Self(rawValue: 2)
+        static let allowBluetoothHFP = Self(rawValue: 1), defaultToSpeaker = Self(rawValue: 2), allowBluetoothA2DP = Self(rawValue: 4)
     }
     enum PortOverride { case speaker, none }
     struct SetActiveOptions: OptionSet { let rawValue: Int; static let notifyOthersOnDeactivation = Self(rawValue: 1) }
@@ -29,24 +29,40 @@ final class AVAudioSession {
     static func sharedInstance() -> AVAudioSession { value }
     static let mic = PortDescription(uid: "phone", portType: .builtInMic, portName: "Phone")
     static let car = PortDescription(uid: "synthetic-car", portType: .bluetoothHFP, portName: "Test car")
-    var availableInputs: [PortDescription]? = [mic, car]
+    var connectedInputs: [PortDescription]? = [mic, car]
+    var availableInputs: [PortDescription]? {
+        get { connectedInputs?.filter { $0.portType != .bluetoothHFP || categoryOptions.contains(.allowBluetoothHFP) } }
+        set { connectedInputs = newValue }
+    }
     var currentRoute = Route(inputs: [mic], outputs: [PortDescription(uid: "receiver", portType: .builtInReceiver, portName: "Phone")])
     var hardwareRate = 48000.0
     var categoryOptions: CategoryOptions = [.allowBluetoothHFP]
-    var mode = Mode.default
+    var mode = Mode.voiceChat
     var micPreferenceLeavesOutput = false, rejectReceiverOutput = false
     var categoryRequests = 0
+    var engineReplacementSelectsHFP = false, receiverPreferenceIgnoredOnHFP = false
+    var speakerRejected = false
     var preferredInput: PortDescription?
     var deferOverrideReset = false, pendingOverrideReset = false
     var preferredRequests = 0, overrideRequests = 0
     var startFailures = 0
     var activeCalls = 0
     var interruptOnSelection = false
-    func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws { categoryOptions = options; self.mode = mode; categoryRequests += 1 }
+    func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws {
+        self.mode = mode
+        categoryOptions = mode == .voiceChat ? options.union(.allowBluetoothHFP) : options
+        categoryRequests += 1
+        if !categoryOptions.contains(.allowBluetoothHFP) { route(.receiver, reason: .categoryChange) }
+    }
     func setPreferredIOBufferDuration(_ value: Double) throws {}
     func setActive(_ value: Bool, options: SetActiveOptions = []) throws { activeCalls += 1 }
     func setPreferredInput(_ port: PortDescription?) throws {
         preferredRequests += 1
+        if port?.portType == .builtInMic && receiverPreferenceIgnoredOnHFP && categoryOptions.contains(.allowBluetoothHFP) {
+            preferredInput = nil
+            route(.external, reason: .override)
+            return
+        }
         preferredInput = port
         if port?.portType == .builtInMic && micPreferenceLeavesOutput {
             currentRoute.inputs = [Self.mic]
@@ -59,9 +75,11 @@ final class AVAudioSession {
     }
     func overrideOutputAudioPort(_ port: PortOverride) throws {
         overrideRequests += 1
+        if port == .speaker && speakerRejected { return }
         if port == .none && deferOverrideReset { pendingOverrideReset = true; return }
         if port == .none && rejectReceiverOutput { return }
-        route(port == .speaker ? .speaker : (categoryOptions.contains(.defaultToSpeaker) ? .speaker : (preferredInput?.portType == .bluetoothHFP ? .external : .receiver)), reason: .override)
+        let bluetoothDefault = preferredInput?.portType == .bluetoothHFP || (preferredInput == nil && receiverPreferenceIgnoredOnHFP && categoryOptions.contains(.allowBluetoothHFP))
+        route(port == .speaker ? .speaker : (categoryOptions.contains(.defaultToSpeaker) ? .speaker : (bluetoothDefault ? .external : .receiver)), reason: .override)
         interruptIfRequested()
     }
     func finishOverrideReset() {
@@ -78,16 +96,21 @@ final class AVAudioSession {
         }
     }
     func route(_ kind: AudioRoutePolicy.Output, reason: RouteChangeReason) {
+        let priorOutput = currentRoute.outputs.first?.portType
         switch kind {
         case .speaker: currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "speaker", portType: .builtInSpeaker, portName: "Speaker")]); hardwareRate = 48000
         case .receiver: currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "receiver", portType: .builtInReceiver, portName: "Phone")]); hardwareRate = 48000
         case .external: currentRoute = Route(inputs: [Self.car], outputs: [Self.car]); hardwareRate = 16000
         case .unavailable: currentRoute = Route(inputs: [], outputs: []); hardwareRate = 0
         }
+        if priorOutput != currentRoute.outputs.first?.portType && AVAudioEngine.latest?.isRunning == true {
+            AVAudioEngine.latest?.configurationChanged()
+        }
         NotificationCenter.default.post(name: Self.routeChangeNotification, object: self, userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
     }
     func reset() {
-        categoryOptions = [.allowBluetoothHFP]; mode = .default; categoryRequests = 0
+        categoryOptions = [.allowBluetoothHFP]; mode = .voiceChat; categoryRequests = 0
+        engineReplacementSelectsHFP = false; receiverPreferenceIgnoredOnHFP = false; speakerRejected = false
         micPreferenceLeavesOutput = false; rejectReceiverOutput = false
         preferredInput = nil; deferOverrideReset = false; pendingOverrideReset = false
         availableInputs = [Self.mic, Self.car]; preferredRequests = 0; overrideRequests = 0; activeCalls = 0; startFailures = 0; interruptOnSelection = false
@@ -129,8 +152,9 @@ final class AVAudioConverter {
 }
 class AVAudioNode {
     // Model a stopped I/O unit retaining its OLD output format while hardware changes.
-    private let cachedRate = AVAudioSession.value.hardwareRate
+    private var cachedRate = AVAudioSession.value.hardwareRate
     private var tapped = false
+    private var tapBlock: AVAudioNodeTapBlock?
     func outputFormat(forBus: Int) -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: cachedRate, channels: 1, interleaved: false)! }
     func inputFormat(forBus: Int) -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AVAudioSession.value.hardwareRate, channels: 1, interleaved: false)! }
     func installTap(onBus: Int, bufferSize: UInt32, format: AVAudioFormat?, block: @escaping (AVAudioPCMBuffer, Int) -> Void) {
@@ -138,12 +162,19 @@ class AVAudioNode {
         let hardware = inputFormat(forBus: onBus)
         precondition(format == nil || format!.isEqual(hardware), "Stale tap format conflicts with hardware")
         precondition(hardware.sampleRate > 0)
-        tapped = true
+        tapped = true; tapBlock = block
         let buffer = AVAudioPCMBuffer(pcmFormat: hardware, frameCapacity: 1024)!
         buffer.frameLength = 1024
         block(buffer, 0)
     }
-    func removeTap(onBus: Int) { precondition(tapped); tapped = false }
+    func deliverHardwareBuffer() {
+        cachedRate = AVAudioSession.value.hardwareRate
+        guard let tapBlock else { return }
+        let buffer = AVAudioPCMBuffer(pcmFormat: inputFormat(forBus: 0), frameCapacity: 1024)!
+        buffer.frameLength = 1024
+        tapBlock(buffer, 0)
+    }
+    func removeTap(onBus: Int) { precondition(tapped); tapped = false; tapBlock = nil }
 }
 final class AVAudioPlayerNode: AVAudioNode {
     enum CompletionCallbackType { case dataPlayedBack }
@@ -156,7 +187,16 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
     static var latest: AVAudioEngine?
     let inputNode = AVAudioNode(), outputNode = AVAudioNode(), mainMixerNode = AVAudioNode()
     var isRunning = false, starts = 0
-    override init() { super.init(); Self.latest = self }
+    override init() {
+        super.init()
+        // Captured 15Pro sequence: constructing the replacement engine changes
+        // the just-selected Speaker back to HFP and clears preferred input.
+        if Self.latest != nil && AVAudioSession.value.engineReplacementSelectsHFP && AVAudioSession.value.categoryOptions.contains(.allowBluetoothHFP) {
+            AVAudioSession.value.preferredInput = nil
+            AVAudioSession.value.route(.external, reason: .newDeviceAvailable)
+        }
+        Self.latest = self
+    }
     func attach(_ node: AVAudioNode) {}
     func connect(_ node: AVAudioNode, to: AVAudioNode, format: AVAudioFormat?) {}
     func disconnectNodeOutput(_ node: AVAudioNode) {}
@@ -164,6 +204,7 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
     func start() throws {
         if AVAudioSession.value.startFailures > 0 { AVAudioSession.value.startFailures -= 1; throw APIError(message: "Synthetic transient route") }
         isRunning = true; starts += 1
+        inputNode.deliverHardwareBuffer()
     }
     func pause() { isRunning = false }
     func stop() { isRunning = false }
@@ -176,175 +217,115 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
     @MainActor static func main() async throws {
         let session = AVAudioSession.value
         session.reset()
+        session.engineReplacementSelectsHFP = true
+        session.receiverPreferenceIgnoredOnHFP = true
         let audio = VoiceAudio()
-        var failures = 0
-        var audioMessage: String?
-        audio.onAudioStatusChanged = { message in
-            audioMessage = message
-            if message?.contains("切换未恢复") == true { failures += 1 }
-        }
-        var routes: [CallAudioRoute] = []
-        var selectedRoute = "", outputName = ""
-        audio.onRoutesChanged = { list, selected, name in routes = list; selectedRoute = selected; outputName = name }
-        audio.beginRouting(UUID())
-        audio.audioSessionActivated()
-        precondition(session.currentRoute.outputs.first?.portType == .bluetoothHFP)
+        var message: String?
+        var selected = "", name = "", routes: [CallAudioRoute] = []
+        audio.onAudioStatusChanged = { message = $0 }
+        audio.onRoutesChanged = { routes = $0; selected = $1; name = $2 }
+        audio.beginRouting(UUID()); audio.audioSessionActivated()
         try await audio.start(callKitManaged: true)
-        var graph = AVAudioEngine.latest!
-        precondition(AVAudioConverter.sourceRates.last == 16000)
-        precondition(routes.contains { $0.id == "input:synthetic-car" })
+        let graph = AVAudioEngine.latest!
         audio.setActiveCall(true); audio.setMuted(true)
-        // Choosing the current AirPods/HFP device must not churn the session.
-        let selections = session.preferredRequests, overrides = session.overrideRequests
-        try audio.selectRoute("input:synthetic-car")
-        precondition(session.preferredRequests == selections && session.overrideRequests == overrides)
-        // Real iOS can deactivate audio during device switching. This is a pause,
-        // not a hangup; CallKit reactivation must resume the existing call.
-        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: session,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
-        precondition(audio.isActiveCall && audio.muted && !audio.isEngineRunning && audioMessage != nil)
-        graph.configurationChanged(); await settle()
-        precondition(!audio.isEngineRunning && failures == 0)
-        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: session,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
-        precondition(!audio.isEngineRunning) // No premature self-activation.
-        audio.audioSessionActivated(); await settle()
-        precondition(audio.isEngineRunning && audioMessage == nil && audio.isActiveCall && audio.muted)
-        // The interruption can arrive synchronously during the user's selection.
-        session.interruptOnSelection = true
+        precondition(session.currentRoute.outputs.first?.portType == .bluetoothHFP)
+        let preferred = session.preferredRequests, overrides = session.overrideRequests
+        try audio.selectRoute("input:synthetic-car"); await settle()
+        precondition(session.preferredRequests == preferred && session.overrideRequests == overrides)
+        precondition(selected == "input:synthetic-car" && message == nil)
+        // Actual trace replay: speaker is selected while the engine stops. It
+        // must not be confirmed at that point, replaced, or returned to HFP.
         try audio.selectRoute("speaker")
-        precondition(audio.isActiveCall && !audio.isEngineRunning && audioMessage != nil)
-        audio.audioSessionActivated(); await settle()
-        precondition(audio.isEngineRunning && audio.muted && audioMessage == nil)
-        precondition(graph !== AVAudioEngine.latest!)
-        precondition(graph.inputNode.outputFormat(forBus: 0).sampleRate == 16000 && graph.inputNode.inputFormat(forBus: 0).sampleRate == 48000)
-        graph = AVAudioEngine.latest!
-        session.route(.speaker, reason: .override); graph.configurationChanged()
+        precondition(selected.isEmpty && name == "正在切换声音")
+        try? await Task.sleep(nanoseconds: 330_000_000)
+        precondition(selected.isEmpty, "No success before two post-recovery samples")
         await settle()
-        precondition(audio.isEngineRunning && audio.muted && audio.isActiveCall && failures == 0)
+        precondition(session.currentRoute.outputs.first?.portType == .builtInSpeaker, "Actual trace regression: engine recovery must retain Speaker")
+        precondition(graph === AVAudioEngine.latest!, "Keep the existing I/O unit")
+        precondition(audio.isEngineRunning && audio.isActiveCall && audio.muted && message == nil && selected == "speaker")
         precondition(AVAudioConverter.sourceRates.last == 48000)
-        // Speaker uses the built-in mic, but the preferred input still points to
-        // HFP. Clearing the override is asynchronous: currentRoute alone cannot
-        // tell whether a receiver request has actually replaced that preference.
-        precondition(session.preferredInput?.uid == AVAudioSession.car.uid)
-        session.deferOverrideReset = true
-        try audio.selectRoute("input:phone")
-        session.finishOverrideReset(); await settle()
-        precondition(session.preferredInput?.uid == AVAudioSession.mic.uid, "Receiver must clear stale HFP preference")
-        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver)
-        precondition(audio.isEngineRunning && audio.isActiveCall && audio.muted)
-        try audio.selectRoute("input:synthetic-car"); await settle()
+        // voiceChat implicitly enables HFP. A receiver-only category must use
+        // default mode and still offer the remembered, currently connected HFP.
         try audio.selectRoute("input:phone"); await settle()
-        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver && audio.isEngineRunning)
-        session.deferOverrideReset = false
+        precondition(session.mode == .default && !session.categoryOptions.contains(.allowBluetoothHFP))
+        precondition(selected == "input:phone" && audio.isEngineRunning && audio.muted)
+        precondition(routes.contains { $0.id == "input:synthetic-car" })
+        precondition(graph === AVAudioEngine.latest!)
+        try audio.selectRoute("input:synthetic-car"); await settle()
+        precondition(session.mode == .voiceChat && session.categoryOptions.contains(.allowBluetoothHFP))
+        precondition(selected == "input:synthetic-car" && audio.isEngineRunning)
+        precondition(AVAudioConverter.sourceRates.last == 16000)
+        try audio.selectRoute("input:phone"); await settle()
+        precondition(selected == "input:phone" && graph === AVAudioEngine.latest!)
+        // CallKit reactivation preserves the receiver choice and its tap lease.
+        audio.audioSessionDeactivated()
+        precondition(!audio.isEngineRunning && audio.muted && audio.isActiveCall)
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+        audio.audioSessionActivated(); await settle()
+        precondition(selected == "input:phone" && audio.isEngineRunning && audio.muted && message == nil)
+        // Resume/switching uses actual buffer format on the ORIGINAL tap.
+        let beforeResume = audio.outgoing.captureStats().taps
+        graph.inputNode.deliverHardwareBuffer()
+        precondition(audio.outgoing.captureStats().taps > beforeResume)
+        // A disconnected remembered device is rejected after restoring eligibility.
+        session.connectedInputs = [AVAudioSession.mic]
+        do { try audio.selectRoute("input:synthetic-car"); preconditionFailure("Disconnected HFP accepted") } catch {}
+        precondition(audio.isActiveCall && audio.muted)
+        session.connectedInputs = [AVAudioSession.mic, AVAudioSession.car]
+        try audio.selectRoute("input:synthetic-car"); await settle()
+        // Failure verification observes only; it cannot create retry storms.
+        session.speakerRejected = true
+        let failedOverrides = session.overrideRequests
         try audio.selectRoute("speaker"); await settle()
-        graph = AVAudioEngine.latest!
-        let convertersBeforeSpeaker = AVAudioConverter.sourceRates.count
-        // Internal reconfiguration loses the temporary speaker override.
-        session.route(.receiver, reason: .routeConfigurationChange); graph.configurationChanged()
-        await settle()
-        precondition(session.currentRoute.outputs.first?.portType == .builtInSpeaker)
-        // Explicit CallKit receiver selection wins over remembered speaker.
-        session.route(.receiver, reason: .override); graph.configurationChanged()
-        await settle()
-        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver)
-        precondition(AVAudioConverter.sourceRates.count > convertersBeforeSpeaker) // Output-only route changes also rebind the graph.
-        graph = AVAudioEngine.latest!
-        // HFP reselect and device removal keep the call and its mute state.
-        try audio.selectRoute("input:synthetic-car"); graph.configurationChanged()
-        await settle()
-        precondition(AVAudioConverter.sourceRates.last == 16000 && audio.muted)
-        precondition(graph !== AVAudioEngine.latest!)
-        graph = AVAudioEngine.latest!
-        session.availableInputs = [AVAudioSession.mic]
-        session.route(.receiver, reason: .oldDeviceUnavailable); graph.configurationChanged()
-        await settle()
-        precondition(audio.isEngineRunning && audio.isActiveCall && failures == 0)
-        graph = AVAudioEngine.latest!
-        do { try audio.selectRoute("input:synthetic-car"); preconditionFailure("Missing device accepted") } catch {}
-        precondition(audio.isEngineRunning)
-        // Model actual input/output divergence: mic preference alone changes
-        // uplink, but downlink needs a subsequent output override reset.
-        session.availableInputs = [AVAudioSession.mic, AVAudioSession.car]
-        session.micPreferenceLeavesOutput = true
-        try audio.selectRoute("input:synthetic-car"); await settle()
-        try audio.selectRoute("input:phone"); await settle()
-        precondition(selectedRoute == "input:phone" && outputName == "iPhone 听筒" && audioMessage == nil)
-        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver)
-        session.categoryOptions.insert(.defaultToSpeaker)
-        try audio.selectRoute("speaker"); await settle()
-        let beforeOutputOnly = AVAudioEngine.latest!
-        try audio.selectRoute("input:phone"); await settle()
-        precondition(!session.categoryOptions.contains(.defaultToSpeaker) && session.categoryRequests == 1)
-        precondition(beforeOutputOnly !== AVAudioEngine.latest!)
-        precondition(selectedRoute == "input:phone" && outputName == "iPhone 听筒")
-        // System accepts the microphone input but refuses the output change.
-        // Never check the receiver based on that input, or hide failure when the
-        // otherwise-working engine finishes its recovery.
-        try audio.selectRoute("input:synthetic-car"); await settle()
-        session.rejectReceiverOutput = true
-        let requestsBeforeRejection = session.preferredRequests
-        try audio.selectRoute("input:phone")
-        precondition(selectedRoute == "input:synthetic-car" && outputName == "Test car", "Receiver must be based on output, not microphone input")
-        await settle()
-        precondition(audioMessage?.contains("未切换成功") == true && selectedRoute == "input:synthetic-car")
-        precondition(session.preferredRequests <= requestsBeforeRejection + 2) // One bounded retry.
-        graph = AVAudioEngine.latest!
+        precondition(session.overrideRequests == failedOverrides + 1)
+        precondition(selected == "input:synthetic-car" && message?.contains("未切换成功") == true)
         graph.configurationChanged(); await settle()
-        precondition(audioMessage?.contains("未切换成功") == true) // Recovery cannot erase a selection failure.
-        session.rejectReceiverOutput = false
+        precondition(message?.contains("未切换成功") == true && audio.isActiveCall)
+        session.speakerRejected = false
         try audio.retryAudio(); await settle()
-        precondition(selectedRoute == "input:phone" && audioMessage == nil && audio.isActiveCall && audio.muted)
-        // A new choice supersedes a pending receiver verification immediately.
-        session.rejectReceiverOutput = true
-        try audio.selectRoute("speaker")
-        try audio.selectRoute("input:phone")
-        precondition(selectedRoute == "speaker" && outputName == "扬声器", "Do not check receiver while output remains speaker")
-        try audio.selectRoute("input:synthetic-car"); await settle()
-        precondition(selectedRoute == "input:synthetic-car" && audioMessage == nil)
-        session.rejectReceiverOutput = false
-        session.micPreferenceLeavesOutput = false
+        precondition(selected == "speaker" && message == nil && audio.isEngineRunning)
+        // A reported target without a running engine is not a successful switch;
+        // publishing the route must not immediately erase the failure message.
+        session.startFailures = 10
         try audio.selectRoute("input:phone"); await settle()
-        graph = AVAudioEngine.latest!
-        // One transient engine failure retries and preserves early-media waiting tone.
+        precondition(session.currentRoute.outputs.first?.portType == .builtInReceiver)
+        precondition(!audio.isEngineRunning && selected.isEmpty && message?.contains("未切换成功") == true)
+        session.startFailures = 0
+        try audio.retryAudio(); await settle()
+        precondition(selected == "input:phone" && message == nil && audio.isEngineRunning)
+        // New choices cancel old confirmations. Preserve mute and waiting tone.
+        try audio.selectRoute("input:phone")
+        try audio.selectRoute("input:synthetic-car"); await settle()
+        precondition(selected == "input:synthetic-car" && message == nil && audio.muted)
         audio.setActiveCall(false); audio.setWaitingTone(true)
         session.startFailures = 1
         graph.configurationChanged(); await settle()
-        precondition(audio.isEngineRunning && audio.isWaitingTone && !audio.isActiveCall && audio.muted && failures == 0)
-        graph = AVAudioEngine.latest!
-        // Exhaustion is bounded, visibly retains the call, and permits explicit retry.
+        precondition(audio.isWaitingTone && audio.isEngineRunning && audio.muted)
         session.startFailures = 10
         graph.configurationChanged(); await settle()
-        precondition(failures == 1 && audioMessage != nil)
+        precondition(message?.contains("切换未恢复") == true)
         session.startFailures = 0
         try audio.retryAudio(); await settle()
-        precondition(audio.isEngineRunning && audioMessage == nil && audio.muted)
-        audio.stop()
-        session.reset()
-        session.availableInputs = [AVAudioSession.mic]
+        precondition(message == nil && audio.isEngineRunning && audio.isWaitingTone)
+        // Original no-Bluetooth receiver/speaker behavior remains mandatory.
+        audio.stop(); session.reset(); session.connectedInputs = [AVAudioSession.mic]
         audio.beginRouting(UUID()); audio.audioSessionActivated()
         try await audio.start(callKitManaged: true)
         audio.setActiveCall(true)
+        let phoneGraph = AVAudioEngine.latest!
         try audio.selectRoute("speaker"); await settle()
-        precondition(selectedRoute == "speaker" && audio.isEngineRunning && audio.isActiveCall)
+        precondition(selected == "speaker" && audio.isActiveCall && audio.isEngineRunning)
         try audio.selectRoute("input:phone"); await settle()
-        precondition(selectedRoute == "input:phone" && audio.isEngineRunning && audio.isActiveCall && audioMessage == nil)
-        audio.stop(); session.reset()
-        audio.beginRouting(UUID()); session.route(.speaker, reason: .override)
-        audio.audioSessionActivated()
-        precondition(session.preferredRequests == 0)
+        precondition(selected == "input:phone" && message == nil && phoneGraph === AVAudioEngine.latest!)
+        // A pending confirmation and old notification cannot cross calls.
+        try audio.selectRoute("speaker"); audio.stop()
+        session.reset(); audio.beginRouting(UUID()); audio.audioSessionActivated()
         try await audio.start(callKitManaged: true)
-        let newGraph = AVAudioEngine.latest!
-        // A cancelled recovery from the previous call cannot stop or rebuild this one.
-        newGraph.configurationChanged(); audio.stop()
-        audio.beginRouting(UUID()); audio.audioSessionActivated()
-        try await audio.start(callKitManaged: true)
-        let newest = AVAudioEngine.latest!
-        let count = newest.starts
-        graph.configurationChanged(); newGraph.configurationChanged(); await settle()
-        precondition(audio.isEngineRunning && newest.starts == count && failures == 1)
-        precondition(session.activeCalls == 0) // Only CallKit owns activation/deactivation.
+        let nextGraph = AVAudioEngine.latest!, starts = AVAudioEngine.latest!.starts
+        graph.configurationChanged(); phoneGraph.configurationChanged(); await settle()
+        precondition(nextGraph.starts == starts && audio.isEngineRunning && message == nil)
+        precondition(session.activeCalls == 0) // CallKit owns activation/deactivation.
         audio.stop()
-        print("通过：实际VoiceAudio代码模拟旧节点格式滞留/新引擎重建、实际采集格式转换、中断暂停不挂断、CallKit重新激活、恢复失败可重试、HFP接入/采样率变化、系统免提回退修复、手动听筒优先、蓝牙断开续通话、暂态重试/超限、等待音/静音保留、旧引擎/任务隔离；无蓝牙听筒↔扬声器、输出依据勾选/输入输出分离、听筒重置顺序、默认扬声器清除、选择拒绝/有限重试、错误提示保留、新选择优先；无硬件实证")
+        print("通过：15Pro现场序列重放/暂停时不确认/保持同一I/O引擎、voiceChat隐式HFP/听筒会话/蓝牙恢复及断开校验、原tap动态格式转换、CallKit重新激活/静音/等待音、选择核验不重复写入/失败可重试/新选择优先、无蓝牙听筒↔扬声器、新旧通话隔离；物理声音未由模拟证明")
     }
 }

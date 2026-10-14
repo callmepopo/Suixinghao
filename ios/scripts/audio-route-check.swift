@@ -47,6 +47,18 @@ import Foundation
         let early = frames.resetCapture()
         frames.append(Data(repeating: 5, count: 320), generation: early)
         precondition(frames.next().allSatisfy { $0 == 0 })
-        print("通过：蓝牙初始选择、锁屏免提单次恢复、系统后选优先、设备变化与新通话隔离、旧采音丢弃、静音和接通前保护（离线）")
+        let leaseFrames = PCMFrames()
+        leaseFrames.setState(active: true, muted: false)
+        let oldLease = PCMFrames.CaptureLease(leaseFrames.resetCapture())
+        let inFlight = oldLease.current!
+        oldLease.update(leaseFrames.resetCapture())
+        leaseFrames.append(Data(repeating: 7, count: 320), generation: inFlight)
+        precondition(leaseFrames.next().allSatisfy { $0 == 0 })
+        leaseFrames.append(Data(repeating: 8, count: 320), generation: oldLease.current!)
+        precondition(leaseFrames.next().allSatisfy { $0 == 8 })
+        oldLease.update(nil)
+        let nextLease = PCMFrames.CaptureLease(leaseFrames.resetCapture())
+        precondition(oldLease.current == nil && nextLease.current != nil)
+        print("通过：同一tap跨路由/暂停换代与旧通话退役、蓝牙初始选择、锁屏免提单次恢复、系统后选优先、设备变化与新通话隔离、旧采音丢弃、静音和接通前保护（离线）")
     }
 }

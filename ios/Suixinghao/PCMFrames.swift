@@ -3,6 +3,15 @@ import Foundation
 
 /// 8 kHz / S16_LE / mono, bounded to 200 ms. Never retain stale speech.
 final class PCMFrames: @unchecked Sendable {
+    /// One tap owns this lease. Resetting its token invalidates an in-flight
+    /// buffer while allowing the same tap to resume; retiring it blocks old calls.
+    final class CaptureLease: @unchecked Sendable {
+        private let lock = NSLock()
+        private var token: UUID?
+        init(_ token: UUID) { self.token = token }
+        var current: UUID? { lock.lock(); defer { lock.unlock() }; return token }
+        func update(_ token: UUID?) { lock.lock(); self.token = token; lock.unlock() }
+    }
     static let frameBytes = 320
     let diagnostics = VoiceDiagnostics()
     private let lock = NSLock()
