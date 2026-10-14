@@ -33,15 +33,62 @@ final class VoiceDiagnostics: @unchecked Sendable {
     private var levelPeak: UInt64 = 0
     private var levelQuiet: UInt64 = 0
     private var levelClipped: UInt64 = 0
+    // v3 only: downlink buffer, route and network context. Old servers reject unknown
+    // names, so these never enter `counts` or `events` below v3.
+    private var downlink: DownlinkJitter?
+    private var extraCounts: [String: UInt64] = [:]
+    private var extraValues: [String: UInt64] = [:]
+    private var context: [String: String] = [:]
+    private var extraEvents: [[String: Any]] = []
+    private var downSamples: UInt64 = 0, downSquares: Double = 0, downPeak: UInt64 = 0, downQuiet: UInt64 = 0, downClipped: UInt64 = 0
     private static let logger = Logger(subsystem: "com.junpo.suixinghao", category: "audio")
     func negotiate(_ enabled: Bool, version: Int = 1) {
-        lock.lock(); supported = enabled; wireVersion = version == 2 ? 2 : 1; lock.unlock()
+        lock.lock(); supported = enabled; wireVersion = [2, 3].contains(version) ? version : 1; lock.unlock()
+    }
+    func attachDownlink(_ jitter: DownlinkJitter?) {
+        lock.lock(); downlink = jitter; _ = jitter?.drain(); lock.unlock()
+    }
+    /// Current route/network facts (port types and interface kinds only, never names).
+    func setContext(_ key: String, _ value: String) {
+        lock.lock(); context[key] = value; lock.unlock()
+    }
+    func setValue(_ name: String, _ value: UInt64) {
+        lock.lock(); extraValues[name] = value; lock.unlock()
+    }
+    /// Counted change plus a timeline event (value is a small numeric code).
+    func change(_ kind: String, counter: String, value: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        extraCounts[counter, default: 0] += 1
+        extraEventLocked(kind, value: value, now: DispatchTime.now().uptimeNanoseconds)
+    }
+    private func extraEventLocked(_ kind: String, value: UInt64, now: UInt64) {
+        guard events.count + extraEvents.count < 16 else { extraCounts["events_omitted_v3", default: 0] += 1; return }
+        extraEvents.append(["kind": kind, "elapsed_ms": (max(now, started) - started) / 1_000_000,
+                            "frame": counts["sent_frames", default: 0] + 1, "value": value])
+    }
+    private func mergeDownlinkLocked() {
+        guard let snapshot = downlink?.drain() else { return }
+        counts["down_played_frames", default: 0] += snapshot.playedFrames
+        let lost = snapshot.counters["down_overflow_frames", default: 0] + snapshot.counters["down_trimmed_frames", default: 0]
+        if lost > 0 { counts["down_dropped_frames", default: 0] += lost }
+        for (name, value) in snapshot.counters { extraCounts[name, default: 0] += value }
+        for (name, value) in snapshot.peaks { extraCounts[name] = max(extraCounts[name, default: 0], value) }
+        let level = snapshot.level, samples = level["samples", default: 0]
+        if samples > 0 {
+            let rms = Double(level["rms", default: 0])
+            downSquares += rms * rms * Double(samples); downSamples += samples
+            downPeak = max(downPeak, level["peak", default: 0])
+            downQuiet += level["quiet_samples", default: 0]; downClipped += level["clipped_samples", default: 0]
+        }
+        for event in snapshot.events { extraEventLocked(event.kind, value: event.value, now: event.at) }
     }
     @discardableResult func reset(now: UInt64) -> String {
         lock.lock(); defer { lock.unlock() }
         id = UUID().uuidString; started = now; reported = now
         previousSend = nil; counts.removeAll(keepingCapacity: true)
         events.removeAll(keepingCapacity: true)
+        extraCounts.removeAll(keepingCapacity: true); extraEvents.removeAll(keepingCapacity: true)
+        _ = downlink?.drain()
         clearLevelLocked()
         return id
     }
@@ -53,6 +100,7 @@ final class VoiceDiagnostics: @unchecked Sendable {
     }
     private func clearLevelLocked() {
         levelSamples = 0; levelSquares = 0; levelPeak = 0; levelQuiet = 0; levelClipped = 0
+        downSamples = 0; downSquares = 0; downPeak = 0; downQuiet = 0; downClipped = 0
     }
     private func eventLocked(_ kind: String, value: UInt64, now: UInt64) {
         guard events.count < 16 else { counts["events_omitted", default: 0] += 1; return }
@@ -101,10 +149,11 @@ final class VoiceDiagnostics: @unchecked Sendable {
         return snapshotLocked(now: now)
     }
     private func snapshotLocked(now: UInt64) -> [String: Any] {
+        mergeDownlinkLocked()
         var value: [String: Any] = counts.mapValues { $0 as Any }
         value["type"] = "audio_stats"; value["version"] = 1
         value["segment"] = id; value["elapsed_ms"] = (max(now, started) - started) / 1_000_000
-        if wireVersion == 2 {
+        if wireVersion >= 2 {
             // A concurrent capture can be newer than the caller's snapshot time.
             value["elapsed_ms"] = max((max(now, started) - started) / 1_000_000,
                                       events.compactMap { $0["elapsed_ms"] as? UInt64 }.max() ?? 0)
@@ -112,6 +161,19 @@ final class VoiceDiagnostics: @unchecked Sendable {
             value["level"] = ["samples": levelSamples, "rms": levelSamples == 0 ? 0 : UInt64(sqrt(Double(levelSquares) / Double(levelSamples))),
                               "peak": levelPeak, "quiet_samples": levelQuiet, "clipped_samples": levelClipped]
         } else { value.removeValue(forKey: "events_omitted") }
+        if wireVersion == 3 {
+            value["version"] = 3
+            for (name, count) in extraCounts where name != "events_omitted_v3" { value[name] = count }
+            for (name, count) in extraValues { value[name] = count }
+            // The server accepts at most 16 events per report; the rest are only counted.
+            let merged = events + extraEvents
+            let omitted = extraCounts["events_omitted_v3", default: 0] + UInt64(max(0, merged.count - 16))
+            if omitted > 0 { value["events_omitted"] = counts["events_omitted", default: 0] + omitted }
+            value["events"] = Array(merged.prefix(16))
+            value["context"] = context
+            value["down_level"] = ["samples": downSamples, "rms": downSamples == 0 ? 0 : UInt64(sqrt(downSquares / Double(downSamples))),
+                                   "peak": downPeak, "quiet_samples": downQuiet, "clipped_samples": downClipped]
+        }
         return value
     }
     func report(now: UInt64, final: Bool = false, segment: String? = nil) -> String? {
@@ -120,7 +182,7 @@ final class VoiceDiagnostics: @unchecked Sendable {
         let due = final || max(now, reported) - reported >= 5_000_000_000
         let upload = supported
         let value = due ? snapshotLocked(now: now) : nil
-        if due { reported = now; events.removeAll(keepingCapacity: true); clearLevelLocked() }
+        if due { reported = now; events.removeAll(keepingCapacity: true); extraEvents.removeAll(keepingCapacity: true); clearLevelLocked() }
         lock.unlock()
         guard let value, let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { return nil }

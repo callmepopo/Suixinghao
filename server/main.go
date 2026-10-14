@@ -160,7 +160,7 @@ func stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-lock }()
-	u := websocket.Upgrader{CheckOrigin: allowedOrigin, Subprotocols: []string{"sxh.audio-diagnostics.v2", "sxh.audio-diagnostics.v1"}}
+	u := websocket.Upgrader{CheckOrigin: allowedOrigin, Subprotocols: []string{"sxh.audio-diagnostics.v3", "sxh.audio-diagnostics.v2", "sxh.audio-diagnostics.v1"}}
 	c, e := u.Upgrade(w, r, nil)
 	if e != nil {
 		log.Printf("音频通道升级失败: %v", e)

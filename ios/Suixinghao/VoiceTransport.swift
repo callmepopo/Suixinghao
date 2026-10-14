@@ -28,7 +28,7 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
         #endif
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("sxh.audio-diagnostics.v2, sxh.audio-diagnostics.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        request.setValue("sxh.audio-diagnostics.v3, sxh.audio-diagnostics.v2, sxh.audio-diagnostics.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.urlCache = nil
@@ -117,8 +117,9 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
     nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         Task { @MainActor in
             guard self.socket === webSocketTask else { return }
-            self.diagnosticsSupported = ["sxh.audio-diagnostics.v1", "sxh.audio-diagnostics.v2"].contains(`protocol` ?? "")
-            self.diagnosticsVersion = `protocol` == "sxh.audio-diagnostics.v2" ? 2 : 1
+            let versions = ["sxh.audio-diagnostics.v1": 1, "sxh.audio-diagnostics.v2": 2, "sxh.audio-diagnostics.v3": 3]
+            self.diagnosticsSupported = versions[`protocol` ?? ""] != nil
+            self.diagnosticsVersion = versions[`protocol` ?? ""] ?? 1
             let pending = self.opening; self.opening = nil; pending?.resume()
         }
     }

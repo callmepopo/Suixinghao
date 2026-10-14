@@ -253,12 +253,15 @@ func (p *controller) tick() {
 			}
 			p.run = recordingName(time.Now(), p.peer, p.direction)
 			p.view.Media = true
+			resetCallSignal(time.Now())
 			log.Printf("通话音频启动: 阶段=%s 方向=%s", p.view.State, p.direction)
 			p.changed()
 		}
 		if mediaOn(p.run) != nil {
 			p.terminate("声音启动失败")
+			return
 		}
+		sampleCallSignal(time.Now())
 	}
 }
 func watchPhone(ctx context.Context) {

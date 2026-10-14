@@ -121,6 +121,7 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 			}
 			total += len(b)
 			writeRecording(false, b)
+			stats.level(false, b)
 			noteDown()
 			stats.output(false)
 
@@ -152,6 +153,9 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 					return
 				}
 				stats.moduleWrite(active, time.Since(writeStarted))
+				if active {
+					stats.level(true, b)
+				}
 				total += len(b)
 				stats.output(true)
 			}

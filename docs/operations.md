@@ -40,7 +40,12 @@
 
 向GitHub报问题只提供版本、平台/内核、脱敏状态与复现步骤，禁止上传完整配置、接口原响应、号码、短信、录音、签名文件或日志原包。
 
-日常断音排查：先根据用户反馈的通话时段查音频关联trace，再对照phone.events与服务events。手机send_gap对应后台receive_gap优先查采集/发送；手机节拍稳定而后台停顿优先查传输；后台到达稳定但module_write_slow/underrun优先查模块播放链路。level只辅助判断幅值，不能从自然静音判故障。无需主动拨号、录音或新AT查询。
+日常断音排查：先根据用户反馈的通话时段查音频关联trace，再对照phone.events与服务events。手机send_gap对应后台receive_gap优先查采集/发送；手机节拍稳定而后台停顿优先查传输；后台到达稳定但module_write_slow/underrun优先查模块播放链路。level只辅助判断幅值，不能从自然静音判故障。无需主动拨号或录音。
+
+服务0.1.8／App0.1.13起按方向分开判断（字段见[API](API.md#日常通话诊断-v3服务018app0113)）：
+- 对方听不清／卡（上行）：phone.level与服务up_level看本机音量；capture_drop/capture_underfill看手机采集；receive_gaps看网络到达；module_underrun看模块播放；signal的rsrp/sinr偏低时优先怀疑模块到运营商一段。context.route_in区分听筒/扬声器/蓝牙麦克风。
+- 本机听不清／卡（下行）：服务down_level的clipped_samples看模块输出是否破音；手机down_gap/down_underruns看网络与播放断流；down_overflow/trimmed为积压舍弃。
+- context.net与net_change对应Wi‑Fi/蜂窝切换时刻。
 
 ## 0.1.3 主动断开与短信删除
 

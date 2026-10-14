@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
+	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -27,6 +28,38 @@ type audioStats struct {
 	eventsOmitted                                          uint64
 	writeMaxUS                                             uint64
 	queueDepth                                             uint64
+	// Per-summary window: what was written to the module (up) and read from it (down).
+	upLevel, downLevel    pcmLevel
+	gap60, gap150, gap300 uint64
+}
+
+// pcmLevel aggregates numbers only; samples are never kept.
+type pcmLevel struct{ samples, squares, peak, quiet, clipped uint64 }
+
+func (l *pcmLevel) add(b []byte) {
+	for i := 0; i+1 < len(b); i += 2 {
+		v := int64(int16(uint16(b[i]) | uint16(b[i+1])<<8))
+		if v < 0 {
+			v = -v
+		}
+		m := uint64(v)
+		l.samples++
+		l.squares += m * m
+		l.peak = max(l.peak, m)
+		if m < 104 { // about -50 dBFS
+			l.quiet++
+		}
+		if m >= 32760 {
+			l.clipped++
+		}
+	}
+}
+func (l *pcmLevel) view() map[string]uint64 {
+	rms := uint64(0)
+	if l.samples > 0 {
+		rms = uint64(math.Sqrt(float64(l.squares) / float64(l.samples)))
+	}
+	return map[string]uint64{"samples": l.samples, "rms": rms, "peak": l.peak, "quiet_samples": l.quiet, "clipped_samples": l.clipped}
 }
 
 type audioEvent struct {
@@ -79,6 +112,8 @@ func (s *audioStats) begin(run string) {
 	s.queueDepth = 0
 	s.events = nil
 	s.eventsOmitted = 0
+	s.upLevel, s.downLevel = pcmLevel{}, pcmLevel{}
+	s.gap60, s.gap150, s.gap300 = 0, 0, 0
 }
 func (s *audioStats) arrival(run string, dropped bool, depth int) {
 	if run == "" {
@@ -99,6 +134,13 @@ func (s *audioStats) arrivalAt(run string, dropped bool, depth int, now time.Tim
 		}
 		if gap := now.Sub(s.lastUp).Microseconds(); gap >= 60000 {
 			s.eventLocked("receive_gap", uint64(gap), now)
+			s.gap60++
+			if gap >= 150000 {
+				s.gap150++
+			}
+			if gap >= 300000 {
+				s.gap300++
+			}
 		}
 	}
 	s.lastUp = now
@@ -125,6 +167,17 @@ func (s *audioStats) moduleWrite(active bool, duration time.Duration) {
 	}
 	if us >= 40000 {
 		s.eventLocked("module_write_slow", us, time.Now())
+	}
+}
+
+// Level of active PCM actually exchanged with the module, for the current window.
+func (s *audioStats) level(up bool, b []byte) {
+	s.Lock()
+	defer s.Unlock()
+	if up {
+		s.upLevel.add(b)
+	} else {
+		s.downLevel.add(b)
 	}
 }
 func (s *audioStats) discardStartup() { s.Lock(); s.startupDiscarded++; s.Unlock() }
@@ -155,6 +208,11 @@ func (s *audioStats) summary(final bool) {
 	v["events"] = append([]audioEvent(nil), s.events...)
 	v["events_omitted"] = s.eventsOmitted
 	s.events = nil
+	v["receive_gaps"] = map[string]uint64{"ge60ms": s.gap60, "ge150ms": s.gap150, "ge300ms": s.gap300}
+	v["up_level"] = s.upLevel.view()
+	v["down_level"] = s.downLevel.view()
+	s.upLevel, s.downLevel = pcmLevel{}, pcmLevel{}
+	v["signal"] = callSignalSummary()
 	for name, at := range map[string]time.Time{"underrun_first_at": s.firstUnderrun, "underrun_last_at": s.lastUnderrun, "overrun_first_at": s.firstOverrun, "overrun_last_at": s.lastOverrun} {
 		if !at.IsZero() {
 			v[name] = at.UTC().Format(time.RFC3339Nano)
@@ -178,6 +236,33 @@ var audioCounterNames = map[string]bool{
 	"waiting_silence_frames": true, "muted_silence_frames": true, "capture_underfill_frames": true,
 	"down_received_frames": true, "down_inactive_frames": true, "down_dropped_frames": true, "down_played_frames": true, "playback_queue_peak_frames": true,
 	"events_omitted": true,
+	// v3: downlink jitter buffer, audio route and network context of the phone.
+	"down_underruns": true, "down_concealed_samples": true, "down_trimmed_frames": true, "down_overflow_frames": true,
+	"down_depth_peak_frames": true, "down_arrival_gap_max_us": true, "route_changes": true, "net_changes": true,
+	"input_rate": true, "output_rate": true, "io_buffer_us": true, "input_latency_us": true, "output_latency_us": true,
+}
+var audioEventKinds = map[uint64]map[string]bool{
+	2: {"send_gap": true, "send_slow": true, "capture_drop": true, "capture_underfill": true},
+	3: {"send_gap": true, "send_slow": true, "capture_drop": true, "capture_underfill": true,
+		"down_gap": true, "down_underrun": true, "down_trim": true, "route_change": true, "net_change": true},
+}
+var audioContextKeys = map[string]bool{"route_in": true, "route_out": true, "session_mode": true, "net": true}
+var audioContextValue = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+func validLevel(encoded json.RawMessage) (map[string]uint64, bool) {
+	var level map[string]uint64
+	if json.Unmarshal(encoded, &level) != nil || len(level) != 5 {
+		return nil, false
+	}
+	for _, k := range []string{"samples", "rms", "peak", "quiet_samples", "clipped_samples"} {
+		if _, ok := level[k]; !ok {
+			return nil, false
+		}
+	}
+	if level["samples"] > 1000000000000 || level["rms"] > 32768 || level["peak"] > 32768 || level["quiet_samples"] > level["samples"] || level["clipped_samples"] > level["samples"] {
+		return nil, false
+	}
+	return level, true
 }
 
 // Optional text metadata is whitelisted. Invalid metadata never tears down audio.
@@ -195,7 +280,7 @@ func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
 		json.Unmarshal(raw["segment"], &segment) != nil || !audioSegment.MatchString(segment) || json.Unmarshal(raw["elapsed_ms"], &elapsed) != nil || elapsed > 86400000 {
 		return false
 	}
-	if version != 1 && version != 2 || version == 1 && len(b) > 2048 {
+	if version < 1 || version > 3 || version == 1 && len(b) > 2048 {
 		return false
 	}
 	value := map[string]any{"type": kind, "version": version, "segment": segment, "elapsed_ms": elapsed}
@@ -203,7 +288,7 @@ func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
 		if name == "type" || name == "version" || name == "segment" || name == "elapsed_ms" {
 			continue
 		}
-		if version == 2 && name == "events" {
+		if version >= 2 && name == "events" {
 			var events []audioEvent
 			dec := json.NewDecoder(bytes.NewReader(encoded))
 			dec.DisallowUnknownFields()
@@ -211,27 +296,32 @@ func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
 				return false
 			}
 			for _, e := range events {
-				if !map[string]bool{"send_gap": true, "send_slow": true, "capture_drop": true, "capture_underfill": true}[e.Kind] || e.At != "" || e.ElapsedMS > elapsed || e.Frame > 1000000000000 || e.Value > 1000000000000 {
+				if !audioEventKinds[version][e.Kind] || e.At != "" || e.ElapsedMS > elapsed || e.Frame > 1000000000000 || e.Value > 1000000000000 {
 					return false
 				}
 			}
 			value[name] = events
 			continue
 		}
-		if version == 2 && name == "level" {
-			var level map[string]uint64
-			if json.Unmarshal(encoded, &level) != nil || len(level) != 5 {
-				return false
-			}
-			for _, k := range []string{"samples", "rms", "peak", "quiet_samples", "clipped_samples"} {
-				if _, ok := level[k]; !ok {
-					return false
-				}
-			}
-			if level["samples"] > 1000000000000 || level["rms"] > 32768 || level["peak"] > 32768 || level["quiet_samples"] > level["samples"] || level["clipped_samples"] > level["samples"] {
+		if version >= 2 && name == "level" || version == 3 && name == "down_level" {
+			level, ok := validLevel(encoded)
+			if !ok {
 				return false
 			}
 			value[name] = level
+			continue
+		}
+		if version == 3 && name == "context" {
+			var context map[string]string
+			if json.Unmarshal(encoded, &context) != nil || len(context) > len(audioContextKeys) {
+				return false
+			}
+			for k, v := range context {
+				if !audioContextKeys[k] || !audioContextValue.MatchString(v) {
+					return false
+				}
+			}
+			value[name] = context
 			continue
 		}
 		if !audioCounterNames[name] {
@@ -250,7 +340,7 @@ func (s *audioStats) acceptClient(b []byte, now time.Time) bool {
 	}
 	s.lastClient = now
 	s.client = value
-	if version == 2 && !s.started.IsZero() {
+	if version >= 2 && !s.started.IsZero() {
 		anchor := map[string]any{"trace": s.trace, "segment": s.segment, "server_at": now.UTC().Format(time.RFC3339Nano), "server_elapsed_ms": max(int64(0), now.Sub(s.started).Milliseconds()), "socket_received_frames": s.socketFrames, "up_written": s.written, "recorded_up_ms": s.recordedFrames * 20, "phone": value}
 		data, _ := json.Marshal(anchor)
 		log.Printf("音频关联 %s", data)

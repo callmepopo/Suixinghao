@@ -167,6 +167,17 @@ v2在audio_stats中增加events（每窗口最多16条）与level。事件只允
 
 所有日志仅保留时间、随机关联号与数值，不保存号码、音频内容或个人地址，沿用现有服务日志轮转；未增加录音、AT查询或硬件写入。
 
+## 日常通话诊断 v3（服务0.1.8／App0.1.13）
+
+服务优先协商 `sxh.audio-diagnostics.v3`，旧App仍走v2/v1；新App连旧服务时退回v2，新字段不发送。v3在v2基础上增加（仍每5秒、≤8KiB、事件≤16条）：
+
+- 下行抖动缓冲计数（累计）：down_underruns（播放断流次数）、down_concealed_samples（断流中补静音样本）、down_overflow_frames（超过360ms积压丢弃的最旧帧）、down_trimmed_frames（积压持续>160ms每秒收回的帧）、down_depth_peak_frames、down_arrival_gap_max_us。旧字段down_played_frames为实际交给硬件的帧，down_dropped_frames=overflow+trimmed。
+- down_level：对方声音（手机收到的下行）音量，格式同level。
+- 设备与网络：context（route_in／route_out为系统端口类型、session_mode、net为wifi/cellular/wired/other/none，均只含类型，不含设备名或地址）；input_rate、output_rate（Hz）、io_buffer_us、input_latency_us、output_latency_us；route_changes、net_changes。
+- 新事件：down_gap（下行到达间隔≥80ms，value微秒）、down_underrun（value缺少样本数）、down_trim、route_change（value：1听筒2扬声器3蓝牙通话4其他0无）、net_change（value：1Wi‑Fi 2蜂窝3有线4其他0无网）。
+
+服务“音频诊断”每5秒另记：up_level（写入模块的本机声音音量）、down_level（模块读出的对方声音音量，含削顶数）、receive_gaps（本窗口内≥60/150/300ms的到达间隔计数）、signal（通话中模块信号：开始约3秒后每10秒只读查询一次AT+QCSQ，不支持时改用AT+CSQ；latest含rat、rssi、rsrp、sinr、rsrq或csq，另有本通最差rsrp/sinr与查询失败数）。信号查询经现有控制循环串行执行，不新开AT接口、不写配置。
+
 ### 0.1.3 历史短信删除（App Key）
 
 - DELETE `/app/sms/messages/{id}`：正整数记录ID，成功200，透传上游删除结果；只允许该固定路径。

@@ -25,7 +25,7 @@ func TestAudioMetadataBoundsRateAndIsolation(t *testing.T) {
 	}
 	var base map[string]any
 	json.Unmarshal(payload, &base)
-	for name, value := range map[string]any{"number": "private", "sent_frames": -1, "elapsed_ms": 86400001, "segment": "private", "version": 3} {
+	for name, value := range map[string]any{"number": "private", "sent_frames": -1, "elapsed_ms": 86400001, "segment": "private", "version": 4} {
 		clone := map[string]any{}
 		for k, v := range base {
 			clone[k] = v

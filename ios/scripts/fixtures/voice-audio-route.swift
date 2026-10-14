@@ -19,7 +19,7 @@ final class AVAudioSession {
     enum RouteChangeReason: UInt { case unknown, newDeviceAvailable, oldDeviceUnavailable, categoryChange, override }
     enum InterruptionType: UInt { case began, ended }
     enum Category { case playback, playAndRecord }
-    enum Mode { case `default`, voiceChat }
+    enum Mode: String { case `default` = "AVAudioSessionModeDefault", voiceChat = "AVAudioSessionModeVoiceChat" }
     struct CategoryOptions: OptionSet { let rawValue: Int; static let allowBluetoothHFP = Self(rawValue: 1), defaultToSpeaker = Self(rawValue: 2) }
     enum PortOverride { case speaker, none }
     struct SetActiveOptions: OptionSet { let rawValue: Int; static let notifyOthersOnDeactivation = Self(rawValue: 1) }
@@ -39,6 +39,8 @@ final class AVAudioSession {
     }
     var currentRoute = Route(inputs: [], outputs: [])
     var hardwareRate = 48000.0
+    var sampleRate: Double { hardwareRate }
+    let ioBufferDuration = 0.02, inputLatency = 0.002, outputLatency = 0.004
     var preferred: PortDescription?
     var speakerOverride = false
     var categoryChanges = 0, overrides = 0, preferredRequests = 0
@@ -137,6 +139,12 @@ class AVAudioNode {
         let buffer = AVAudioPCMBuffer(pcmFormat: hardware(), frameCapacity: 1024)!
         buffer.frameLength = 1024; block(buffer, 0)
     }
+}
+final class AVAudioSourceNode: AVAudioNode {}
+func makeDownlinkSourceNode(format: AVAudioFormat, jitter: DownlinkJitter) -> AVAudioSourceNode { AVAudioSourceNode() }
+final class CallNetworkMonitor: @unchecked Sendable {
+    func start(_ report: @escaping @Sendable (String, UInt64) -> Void) { report("wifi", 1) }
+    func stop() {}
 }
 final class AVAudioPlayerNode: AVAudioNode {
     enum CompletionCallbackType { case dataPlayedBack }

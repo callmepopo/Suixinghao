@@ -14,14 +14,18 @@ struct CallAudioRoute: Identifiable, Equatable {
 final class VoiceAudio {
     let outgoing = PCMFrames()
     private var engine: AVAudioEngine?
+    /// Test tone only; call audio plays through `source` from the jitter buffer.
     private var player: AVAudioPlayerNode?
+    private var source: AVAudioSourceNode?
+    private let jitter = DownlinkJitter()
+    private let network = CallNetworkMonitor()
+    private var lastRoute = ""
     private var waitingPlayer: AVAudioPlayerNode?
     private var waitingTone = false
     #if DEBUG
     var isWaitingTone: Bool { waitingTone }
     #endif
     private var playbackFormat: AVAudioFormat?
-    private var scheduled = 0
     private var generation = UUID()
     private var routeRecovery = UUID()
     /// Set while Bluetooth calling is temporarily disabled to reach the receiver.
@@ -45,7 +49,9 @@ final class VoiceAudio {
     private var tapInstalled = false
     private(set) var callKitManaged = false
     private(set) var receivedFrames = 0
-    private(set) var playedBuffers = 0
+    private var toneBuffers = 0
+    /// Downlink frames handed to the hardware plus finished test tones.
+    var playedBuffers: Int { toneBuffers + jitter.totalPlayedFrames }
     private(set) var peak: Float = 0
 
     #if DEBUG
@@ -59,13 +65,14 @@ final class VoiceAudio {
         let output = AVAudioPlayerNode()
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false) else { throw APIError(message: "无法建立测试音频格式。") }
         graph.attach(output); graph.connect(output, to: graph.mainMixerNode, format: format)
+        attachDownlink(to: graph, format: format)
         attachWaitingPlayer(to: graph, format: format)
         graph.prepare()
         do { try graph.start() } catch { try? session.setActive(false, options: .notifyOthersOnDeactivation); throw error }
         output.play()
         engine = graph; player = output; playbackFormat = format
         earlyMedia = false; active = false; muted = false; outgoing.enable(false)
-        generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
+        generation = UUID(); receivedFrames = 0; toneBuffers = 0; peak = 0
     }
     #endif
     func start(useSpeaker: Bool? = nil, callKitManaged: Bool = false) async throws {
@@ -97,13 +104,14 @@ final class VoiceAudio {
             }
             graph.attach(output)
             graph.connect(output, to: graph.mainMixerNode, format: downlinkFormat)
+            attachDownlink(to: graph, format: downlinkFormat)
             attachWaitingPlayer(to: graph, format: downlinkFormat)
             capture = try PCMInputConverter()
             try installCapture(on: graph)
             engine = graph; player = output; playbackFormat = downlinkFormat
             self.callKitManaged = callKitManaged
             earlyMedia = false; active = false; muted = false; outgoing.enable(false)
-            generation = UUID(); receivedFrames = 0; playedBuffers = 0; peak = 0
+            generation = UUID(); receivedFrames = 0; toneBuffers = 0; peak = 0
             observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
                 // Pause on began; CallKit/system decides the call. Resume the same graph on ended.
                 guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
@@ -138,7 +146,8 @@ final class VoiceAudio {
             capture = nil
             graph.stop()
             waitingPlayer?.stop(); waitingPlayer = nil; waitingTone = false
-            engine = nil; player = nil; playbackFormat = nil
+            engine = nil; player = nil; source = nil; playbackFormat = nil
+            outgoing.diagnostics.attachDownlink(nil); network.stop()
             self.callKitManaged = false
             if !callKitManaged { try? session.setActive(false, options: .notifyOthersOnDeactivation) }
             throw error
@@ -151,6 +160,7 @@ final class VoiceAudio {
             throw APIError(message: "当前音频设备无法建立通话通道。")
         }
         let frames = outgoing
+        frames.diagnostics.setValue("input_rate", UInt64(hardware.sampleRate))
         // Use the live hardware format explicitly. On the same engine a nil format
         // inherits the previous device's rate (15Pro log: HW 48 kHz vs tap 24 kHz after
         // leaving AirPods → start fails -10868). The converter adapts per buffer.
@@ -189,6 +199,7 @@ final class VoiceAudio {
         }
         routes += knownDevices
         let input = session.currentRoute.inputs.first?.portType.rawValue ?? "none"
+        recordRouteContext(session, input: input, output: output?.portType.rawValue ?? "none")
         routeLog.notice("route in=\(input, privacy: .public) out=\((output?.portType.rawValue ?? "none"), privacy: .public) phoneOnly=\(self.phoneOnly != nil, privacy: .public) engine=\(self.engine?.isRunning == true, privacy: .public)")
         // The checkmark follows the real output, never the selected microphone.
         let current: String
@@ -204,6 +215,29 @@ final class VoiceAudio {
         }
         let name = routes.first { $0.id == current }?.name ?? output?.portName ?? "无可用声音设备"
         onRoutesChanged?(routes, current, name)
+    }
+    /// Port types and session numbers for the call timeline (no device names or ids).
+    private func recordRouteContext(_ session: AVAudioSession, input: String, output: String) {
+        let diagnostics = outgoing.diagnostics
+        diagnostics.setContext("route_in", input)
+        diagnostics.setContext("route_out", output)
+        diagnostics.setContext("session_mode", session.mode.rawValue)
+        diagnostics.setValue("io_buffer_us", UInt64(max(0, session.ioBufferDuration) * 1_000_000))
+        diagnostics.setValue("input_latency_us", UInt64(max(0, session.inputLatency) * 1_000_000))
+        diagnostics.setValue("output_latency_us", UInt64(max(0, session.outputLatency) * 1_000_000))
+        diagnostics.setValue("output_rate", UInt64(max(0, session.sampleRate)))
+        let route = input + ">" + output
+        guard route != lastRoute else { return }
+        let code: UInt64
+        switch output {
+        case AVAudioSession.Port.builtInReceiver.rawValue: code = 1
+        case AVAudioSession.Port.builtInSpeaker.rawValue: code = 2
+        case AVAudioSession.Port.bluetoothHFP.rawValue: code = 3
+        case "none": code = 0
+        default: code = 4
+        }
+        if !lastRoute.isEmpty { diagnostics.change("route_change", counter: "route_changes", value: code) }
+        lastRoute = route
     }
     private static let externalInputs: Set<AVAudioSession.Port> = [.bluetoothHFP, .carAudio, .headsetMic, .usbAudio]
     func setSpeaker(_ enabled: Bool) throws {
@@ -303,7 +337,7 @@ final class VoiceAudio {
             guard engine === graph, routeRecovery == attempt else { return }
             do {
                 generation = UUID()
-                scheduled = 0
+                jitter.reset()
                 player?.stop()
                 graph.stop()
                 if tapInstalled { graph.inputNode.removeTap(onBus: 0); tapInstalled = false }
@@ -327,6 +361,19 @@ final class VoiceAudio {
         }
         guard engine === graph, routeRecovery == attempt else { return }
         onAudioStatusChanged?("声音设备恢复失败，通话仍保留。请重新选择声音设备或点击重试。")
+    }
+    private func attachDownlink(to graph: AVAudioEngine, format: AVAudioFormat) {
+        jitter.reset()
+        let node = makeDownlinkSourceNode(format: format, jitter: jitter)
+        graph.attach(node); graph.connect(node, to: graph.mainMixerNode, format: format)
+        source = node
+        outgoing.diagnostics.attachDownlink(jitter)
+        let diagnostics = outgoing.diagnostics
+        lastRoute = ""
+        network.start { kind, code in
+            diagnostics.setContext("net", kind)
+            diagnostics.change("net_change", counter: "net_changes", value: code)
+        }
     }
     private func attachWaitingPlayer(to graph: AVAudioEngine, format: AVAudioFormat) {
         let node = AVAudioPlayerNode()
@@ -363,24 +410,10 @@ final class VoiceAudio {
         outgoing.diagnostics.add("down_received_frames")
         peak = max(peak, samples.map { abs($0) }.max() ?? 0)
         guard active || earlyMedia else { outgoing.diagnostics.add("down_inactive_frames"); return }
-        if scheduled >= 10 { outgoing.diagnostics.add("down_dropped_frames"); return }
-        guard scheduled < 10,
-              let format = playbackFormat, let player,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160),
-              let target = buffer.floatChannelData?[0] else { return }
-        buffer.frameLength = 160
-        for i in 0..<160 { target[i] = samples[i] }
-        scheduled += 1
-        outgoing.diagnostics.peak("playback_queue_peak_frames", UInt64(scheduled))
-        let run = generation
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.generation == run else { return }
-                self.scheduled = max(0, self.scheduled - 1)
-                self.playedBuffers += 1
-                self.outgoing.diagnostics.add("down_played_frames")
-            }
-        }
+        guard source != nil else { return }
+        // Bursts are buffered, not dropped; the render thread pulls at the hardware pace.
+        jitter.push(samples, now: DispatchTime.now().uptimeNanoseconds)
+        outgoing.diagnostics.peak("playback_queue_peak_frames", UInt64(jitter.depthFrames))
     }
     #if DEBUG
     func playTestTone() throws {
@@ -394,7 +427,7 @@ final class VoiceAudio {
             samples[index] = Float(sin(Double(index) * 2 * Double.pi * 440 / 8000) * 0.2)
         }
         player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { @MainActor in self?.playedBuffers += 1 }
+            Task { @MainActor in self?.toneBuffers += 1 }
         }
     }
     #endif
@@ -406,11 +439,12 @@ final class VoiceAudio {
         routeRecovery = UUID()
         routeTask?.cancel(); routeTask = nil; phoneOnly = nil; knownDevices = []
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
-        generation = UUID(); scheduled = 0
+        generation = UUID(); jitter.reset()
+        outgoing.diagnostics.attachDownlink(nil); network.stop(); lastRoute = ""
         let wasRunning = engine != nil
         if let engine { if tapInstalled { engine.inputNode.removeTap(onBus: 0) }; engine.stop() }
         tapInstalled = false; capture = nil
-        player?.stop(); player = nil; engine = nil; playbackFormat = nil
+        player?.stop(); player = nil; source = nil; engine = nil; playbackFormat = nil
         if wasRunning && deactivateSession && !managedByCallKit { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 }

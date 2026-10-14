@@ -13,6 +13,6 @@ env = os.environ.copy()
 env.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
 subprocess.run(['xcrun', 'swiftc', '-D', 'DEBUG', '-parse-as-library', '-module-cache-path', str(out / 'module-cache'),
                 str(out / 'VoiceAudio.swift'), str(out / 'PCMFrames.swift'), str(out / 'PCMInputConverter.swift'),
-                str(root / 'Suixinghao/VoiceSendLoop.swift'), str(root / 'scripts/fixtures/voice-audio-route.swift'),
+                str(root / 'Suixinghao/VoiceSendLoop.swift'), str(root / 'Suixinghao/DownlinkJitter.swift'), str(root / 'scripts/fixtures/voice-audio-route.swift'),
                 '-o', str(out / 'check')], env=env, check=True)
 subprocess.run([str(out / 'check')], check=True, timeout=90)
