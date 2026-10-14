@@ -22,6 +22,7 @@
 - 第1步通过后，从同一干净提交用`--module ios --build-only`递增构建号，打Production包上传内部TestFlight，只关联SE3内部组。SE3不安装开发包，以免Production线路无手机覆盖。
 - 第2步通过后，按本文件合入main、同步GitHub，再将同一构建关联外部组并提交Beta审核；不重新打包。新产品版本的首个外部构建按需审核。
 - 第2步上传与第3步提交审核分别需要用户当轮明确授权；App Store正式审核另行确认。
+- 本机无分发证书或Xcode未登录账号时，正式导出与altool上传使用Apple账号项目的App Store Connect API Key（`-authenticationKey*`云端签名）；凭据不进入本仓库。
 - SE3通过只证明App与Production中继线路可用，不代表网友NAS配置或其各自授权通过。
 
 开发签名包不能直接视为商店候选：Debug/Release、签名、权限与 APNs 环境不同。正式候选出现问题，回到 develop 修复、分配新版本并重新验证，不替换已经发布的版本内容。原生产服务、旧 App 与旧签名包不在本轮自动切换。
