@@ -47,10 +47,13 @@ final class VoiceAudio {
     var isActiveCall: Bool { active }
     var isEngineRunning: Bool { engine?.isRunning == true }
     private var tapInstalled = false
-    /// Verification (build57): real playback/capture pace, logged each second during a call.
+    /// Real playback/capture pace, logged each second during a call; the safety net when a
+    /// switch is missed.
     private let captureProbe = CaptureRateProbe()
     private var paceTask: Task<Void, Never>?
     private var paceAttempts = 0
+    /// Output port the graph was last (re)built for.
+    private var builtOutput: String?
     private(set) var callKitManaged = false
     private(set) var receivedFrames = 0
     private var toneBuffers = 0
@@ -131,12 +134,15 @@ final class VoiceAudio {
             observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 // Removing AirPods falls back to the phone; the config-change path restores audio.
                 // Bluetooth HFP can finish connecting seconds later: if audio is still stopped,
-                // restart recovery right away for the settled route.
+                // restart recovery right away for the settled route. With voice processing the
+                // engine keeps running across a switch (15Pro build56/57 logs) yet plays the far
+                // end at ~45% pace until rebuilt, so a changed output port rebuilds too.
                 Task { @MainActor in
                     guard let self else { return }
                     self.paceAttempts = 0
                     self.reportSpeakerRoute()
-                    if self.engine === graph, !graph.isRunning { await self.resumeAfterConfigurationChange(graph) }
+                    let output = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType.rawValue
+                    if self.engine === graph, !graph.isRunning || output != self.builtOutput { await self.resumeAfterConfigurationChange(graph) }
                 }
             })
             observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: graph, queue: .main) { [weak self] _ in
@@ -148,6 +154,7 @@ final class VoiceAudio {
             try await Task.sleep(nanoseconds: 120_000_000)
             guard engine === graph else { throw CancellationError() }
             if !graph.isRunning { try graph.start(); output.play() }
+            builtOutput = session.currentRoute.outputs.first?.portType.rawValue
             reportSpeakerRoute()
             startPaceProbe(graph)
         } catch {
@@ -340,10 +347,10 @@ final class VoiceAudio {
         guard let engine else { return }
         Task { await resumeAfterConfigurationChange(engine) }
     }
-    /// Every second: the 8 kHz downlink should be pulled ~8000 samples/s. 10-14 field data
-    /// (build56, 15Pro): after AirPods→receiver the engine kept running without a
-    /// configuration change and pulled ~74%, dropping far-end audio. Escalate per route
-    /// change: rebuild capture/output → also reset voice processing → turn it off.
+    /// Every second: the 8 kHz downlink should be pulled ~8000 samples/s. 15Pro build57:
+    /// after AirPods→receiver the running engine pulled 3200-3800/s; one rebuild restored
+    /// ~8000 for the rest of the call. If 2 s stay off anyway, escalate per route change:
+    /// rebuild → also reset voice processing → turn it off for this call.
     private func startPaceProbe(_ graph: AVAudioEngine) {
         paceTask?.cancel(); paceAttempts = 0
         paceTask = Task { [weak self] in
@@ -407,6 +414,7 @@ final class VoiceAudio {
                 graph.prepare()
                 try graph.start()
                 player?.play()
+                builtOutput = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType.rawValue
                 if waitingTone { waitingTone = false; setWaitingTone(true) }
                 onAudioStatusChanged?(nil)
                 reportSpeakerRoute()
@@ -493,7 +501,7 @@ final class VoiceAudio {
         callKitManaged = false
         outgoing.enable(false); earlyMedia = false; active = false; muted = false
         routeRecovery = UUID()
-        paceTask?.cancel(); paceTask = nil
+        paceTask?.cancel(); paceTask = nil; builtOutput = nil
         routeTask?.cancel(); routeTask = nil; phoneOnly = nil; knownDevices = []
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         generation = UUID(); jitter.reset()

@@ -45,6 +45,9 @@ final class AVAudioSession {
     var speakerOverride = false
     var categoryChanges = 0, overrides = 0, preferredRequests = 0
     var startFailures = 0
+    /// Real VPIO (15Pro build56/57 logs): the engine keeps running across a device switch
+    /// with no configuration change, while the output pace is wrong until a rebuild.
+    var keepsRunning = false
     func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws {
         categoryChanges += 1; self.mode = mode; categoryOptions = options; apply(.categoryChange)
     }
@@ -70,7 +73,7 @@ final class AVAudioSession {
             currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "rcv", portType: .builtInReceiver, portName: "Receiver")])
         }
         hardwareRate = currentRoute.inputs.first?.portType == .bluetoothHFP ? 16000 : 48000
-        if before != currentRoute.outputs.first?.portType, let engine = AVAudioEngine.latest, engine.isRunning { engine.configurationChanged() }
+        if before != currentRoute.outputs.first?.portType, let engine = AVAudioEngine.latest, engine.isRunning, !keepsRunning { engine.configurationChanged() }
         NotificationCenter.default.post(name: Self.routeChangeNotification, object: self, userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
     }
     func disconnectPods() {
@@ -214,6 +217,11 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         try await check("receiver", .builtInReceiver, 48000, "AirPods→听筒")
         try await check("speaker", .builtInSpeaker, 48000, "听筒→扬声器")
         try await check(pods, .bluetoothHFP, 16000, "扬声器→AirPods")
+        // Voice processing: no configuration change on a switch; a changed output must still rebuild.
+        session.keepsRunning = true
+        try await check("receiver", .builtInReceiver, 48000, "语音处理：AirPods→听筒（引擎不停）")
+        try await check(pods, .bluetoothHFP, 16000, "语音处理：听筒→AirPods（引擎不停）")
+        session.keepsRunning = false
         // Receiver needed the phone-only fallback; choosing AirPods restored voiceChat + HFP.
         precondition(session.categoryChanges > 0 && session.mode == .voiceChat && session.categoryOptions.contains(.allowBluetoothHFP))
         try await check("receiver", .builtInReceiver, 48000, "AirPods→听筒（再次）")
@@ -267,6 +275,6 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         try audio.selectRoute("receiver"); await settle()
         precondition(selected == "receiver" && audio.isEngineRunning && routes.count == 2)
         audio.stop()
-        print("通过：AirPods↔扬声器↔听筒六向切换、显示按实际输出、保持同一引擎与静音、采音按新格式重装、拔出AirPods不挂断、中断恢复、启动失败重试与只提示不挂断、新旧通话隔离、无蓝牙听筒↔扬声器（模拟，未证明真机声音）")
+        print("通过：AirPods↔扬声器↔听筒六向切换、显示按实际输出、保持同一引擎与静音、采音按新格式重装、语音处理下引擎不停时按新设备重建、拔出AirPods不挂断、中断恢复、启动失败重试与只提示不挂断、新旧通话隔离、无蓝牙听筒↔扬声器（模拟，未证明真机声音）")
     }
 }
