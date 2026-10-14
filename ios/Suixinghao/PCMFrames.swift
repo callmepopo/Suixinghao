@@ -3,29 +3,12 @@ import Foundation
 
 /// 8 kHz / S16_LE / mono, bounded to 200 ms. Never retain stale speech.
 final class PCMFrames: @unchecked Sendable {
-    /// One tap owns this lease. Resetting its token invalidates an in-flight
-    /// buffer while allowing the same tap to resume; retiring it blocks old calls.
-    final class CaptureLease: @unchecked Sendable {
-        private let lock = NSLock()
-        private var token: UUID?
-        init(_ token: UUID) { self.token = token }
-        var current: UUID? { lock.lock(); defer { lock.unlock() }; return token }
-        func update(_ token: UUID?) { lock.lock(); self.token = token; lock.unlock() }
-    }
     static let frameBytes = 320
     let diagnostics = VoiceDiagnostics()
     private let lock = NSLock()
     private var pending = Data()
     private var enabled = false
     private var muted = false
-    private var captureGeneration = UUID()
-    /// Invalidate in-flight callbacks as well as queued speech when a route changes.
-    @discardableResult func resetCapture() -> UUID {
-        lock.lock(); defer { lock.unlock() }
-        captureGeneration = UUID()
-        pending.removeAll(keepingCapacity: true)
-        return captureGeneration
-    }
     #if DEBUG
     private var capturedBytes = 0
     private var nonzeroSamples = 0
@@ -56,9 +39,9 @@ final class PCMFrames: @unchecked Sendable {
         enabled = active && !muted
         if !enabled { pending.removeAll(keepingCapacity: true) }
     }
-    func append(_ data: Data, generation: UUID? = nil) {
+    func append(_ data: Data) {
         lock.lock(); defer { lock.unlock() }
-        guard enabled, generation == nil || generation == captureGeneration else { return }
+        guard enabled else { return }
         #if DEBUG
         capturedBytes += data.count
         data.withUnsafeBytes { raw in

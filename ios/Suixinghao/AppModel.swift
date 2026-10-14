@@ -122,6 +122,7 @@ final class AppModel {
             self.statusFresh = false
             Task { @MainActor in await self.endCall(reason: message) }
         }
+        // Sound device changes keep the call; failures only show a message.
         audio.onAudioStatusChanged = { [weak self] message in self?.audioRouteMessage = message }
         audio.onSpeakerChanged = { [weak self] value in self?.speakerEnabled = value }
         audio.onRoutesChanged = { [weak self] routes, selected, name in
@@ -1049,15 +1050,12 @@ final class AppModel {
         #endif
     }
     func beginSystemCall(_ uuid: UUID) {
-        audio.beginRouting(uuid)
         systemCallUUID = uuid
         systemCallActive = true
         systemCallPreparing = true
         telemetry.resume(); telemetry.network(available: networkAvailable, changed: false)
         historyUploadTask?.cancel()
     }
-    func systemAudioActivated() { audio.audioSessionActivated() }
-    func systemAudioDeactivated() { audio.audioSessionDeactivated() }
     func systemCallFinished(_ uuid: UUID, remoteID: String?, stopRemote: Bool) {
         guard systemCallUUID == nil || systemCallUUID == uuid else { return }
         let id = remoteID ?? ownedCallID
@@ -1249,12 +1247,11 @@ final class AppModel {
     func selectAudioRoute(_ id: String) {
         guard !callBusy, mediaConnected, ownedCallID != nil else { return }
         do { try audio.selectRoute(id) }
-        catch { audioRouteMessage = "声音设备切换失败，通话保留。请确认设备已连接，或点击重试声音。" }
+        catch { audioRouteMessage = "声音设备切换失败，通话保留。请确认设备已连接后重试。" }
     }
     func retryCallAudio() {
         guard !callBusy, mediaConnected, ownedCallID != nil else { return }
-        do { try audio.retryAudio() }
-        catch { audioRouteMessage = error.localizedDescription }
+        audio.retryAudio()
     }
     private func releaseMedia() {
         if let ownedCallID { finishCallRecord(id: ownedCallID) }
@@ -1262,7 +1259,7 @@ final class AppModel {
         transport.close(); audio.stop()
         mediaConnected = false; ownedCallID = nil; callStartedAt = nil
         muted = false; speakerEnabled = false
-        audioRoutes = []; selectedAudioRoute = ""; audioRouteName = "等待声音设备"
+        audioRoutes = []; selectedAudioRoute = ""; audioRouteName = "等待声音设备"; audioRouteMessage = nil
         if systemCallActive {
             systemCallActive = false; systemCallPreparing = false; systemCallUUID = nil
             answeringSystemCallID = nil

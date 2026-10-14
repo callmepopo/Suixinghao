@@ -66,7 +66,7 @@ NAS管理员在App接入管理页申请，官方App设置页确认；无需逐�
 
 ## 开发包声音路由排障
 
-App0.1.11/build45 DEBUG构建在本机Cache保存call-route-debug.json，最多96条脱敏路由元数据，Release不保存。复测后通过既有已配对设备工具读取该缓存文件，仅留私有测试目录；不用获取全量钥匙串或用户容器。对比select_begin/applied/check/confirmed/unconfirmed及输入/输出标准类型，判断系统是否接受输出选择；即使输出类型已变，仍须核验实际听筒/扬声器/蓝牙双向声音。字段不含端口名称/UID、地址、号码、凭据或音频，不上传服务。
+（0.1.12起已移除该路由诊断，App不再写入此文件；以下为历史记录。）App0.1.11/build45 DEBUG构建在本机Cache保存call-route-debug.json，最多96条脱敏路由元数据，Release不保存。复测后通过既有已配对设备工具读取该缓存文件，仅留私有测试目录；不用获取全量钥匙串或用户容器。对比select_begin/applied/check/confirmed/unconfirmed及输入/输出标准类型，判断系统是否接受输出选择；即使输出类型已变，仍须核验实际听筒/扬声器/蓝牙双向声音。字段不含端口名称/UID、地址、号码、凭据或音频，不上传服务。
 
 build46路由schema2增加模式字段；先检查select_confirmed时engine_running为true，并观察后续出口是否仍为目标。46不替换I/O引擎，engine_recovery只恢复原引擎；Phone专用会话模式default、HFP关闭，改选外设后恢复原模式。音质末段问题同时看服务数值音频日志的phone发送空档/采音丢弃与服务器接收空档/欠载，禁止把本机源码编辑或编译自动归因为通话中升级；按实际安装/重启时间核对。
 

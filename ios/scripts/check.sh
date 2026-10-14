@@ -25,6 +25,4 @@ xcrun swiftc -parse-as-library -module-cache-path .build/checks/module-cache Sui
 .build/checks/reminder-race-check
 python3 scripts/version.py
 python3 scripts/speaker-switch-check.py
-xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/AudioRoutePolicy.swift Suixinghao/VoiceSendLoop.swift Suixinghao/PCMFrames.swift scripts/audio-route-check.swift -o .build/checks/audio-route-check
-.build/checks/audio-route-check
-python3 scripts/audio-route-runtime-check.py
+python3 scripts/voice-audio-route-check.py

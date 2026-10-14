@@ -217,8 +217,6 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        guard session.call != nil else { return }
-        model?.systemAudioActivated()
         guard let call = session.takeAudioWork() else { return }
         Task {
             let success: Bool
@@ -236,10 +234,6 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
     }
 
     func bindRemote(_ id: String, uuid: UUID) { _ = session.bind(id, to: uuid) }
-    func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        guard session.call != nil else { return }
-        model?.systemAudioDeactivated()
-    }
     func reportConnected(_ id: String) {
         if let uuid = session.connected(id) { provider.reportOutgoingCall(with: uuid, connectedAt: Date()) }
     }
