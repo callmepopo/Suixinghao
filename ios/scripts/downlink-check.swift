@@ -117,7 +117,33 @@ func newRule(_ times: [Int], ioMs: Int) -> (lost: Int, underruns: Int, concealed
         k.render(into: out, count: 160, now: t)
         check(k.drain().counters["down_underruns"] == 0, "未开始播放的静音不算断流")
 
-        // Diagnostics: new fields only reach servers that negotiated v3.
+        // Comfort noise: dead air from the module (−80 dBFS, measured 10-14) becomes a faint
+        // background that follows the far end's own noise level; speech is untouched.
+        func rms(_ p: UnsafeMutablePointer<Float>, _ n: Int) -> Float { var e: Float = 0; for i in 0..<n { e += p[i] * p[i] }; return (e / Float(n)).squareRoot() }
+        let c = DownlinkJitter()
+        let speech = (0..<160).map { Float(sin(Double($0) * 0.3) * 0.3) }
+        let dead = [Float](repeating: 0.00008, count: 160)
+        let background = (0..<160).map { Float(($0 % 2 == 0 ? 1 : -1) * 0.0018) }
+        for _ in 0..<3 { c.push(speech, now: 0) }
+        c.render(into: out, count: 480, now: 0)
+        check(abs(out[100] - speech[100]) < 0.000001, "对方说话内容不被改动")
+        for _ in 0..<5 { c.push(dead, now: 0) }
+        c.render(into: out, count: 800, now: 0)
+        let quiet = rms(out, 800)
+        check(quiet > 0.0004 && quiet < 0.0016, "对方停顿时不再是死寂，补约-60dBFS轻微背景声（实测\(20 * log10(quiet))dB）")
+        for _ in 0..<40 { c.push(background, now: 0); c.render(into: out, count: 160, now: 0) }
+        for _ in 0..<5 { c.push(dead, now: 0) }
+        c.render(into: out, count: 800, now: 0)
+        let followed = rms(out, 800)
+        check(followed > quiet * 1.3 && followed <= 0.0021, "背景声跟随对方实际底噪且有上限")
+        c.render(into: out, count: 1600, now: 0)
+        let gap = rms(out + 160, 1440)
+        check(gap > 0.0004 && gap <= 0.0021, "网络断流时同样补背景声而不是死寂")
+        let fresh = DownlinkJitter()
+        fresh.render(into: out, count: 160, now: 0)
+        check(rms(out, 160) == 0, "通话声音开始前保持安静")
+
+
         let diagnostics = VoiceDiagnostics()
         let feed = DownlinkJitter()
         diagnostics.attachDownlink(feed); diagnostics.reset(now: 0)
@@ -139,6 +165,6 @@ func newRule(_ times: [Int], ioMs: Int) -> (lost: Int, underruns: Int, concealed
         check((v3["down_level"] as? [String: UInt64])?["samples"] == 640, "v3带对方声音音量")
         for _ in 0..<40 { diagnostics.captureEvent("capture_drop", value: 1); diagnostics.change("net_change", counter: "net_changes", value: 1) }
         check((diagnostics.snapshot(now: 400_000_000)["events"] as! [[String: Any]]).count == 16, "事件总数不超过服务端上限16")
-        print("通过：下行抖动缓冲（模拟实测到达节奏，旧规则失败/新缓冲不丢帧）、淡出补静音、积压上限与缓慢收回、v3诊断字段与旧服务兼容（模拟，未证明真机声音）")
+        print("通过：下行抖动缓冲（模拟实测到达节奏，旧规则失败/新缓冲不丢帧）、停顿与断流补舒适噪声（54代码失败）、淡出、积压上限与缓慢收回、v3诊断字段与旧服务兼容（模拟，未证明真机声音）")
     }
 }

@@ -8,6 +8,12 @@ import os
 /// hardware needs: bursts are absorbed, a short gap is faded instead of clicking,
 /// and latency is bounded by trimming one old frame at a time only when the backlog
 /// stays high. Only numbers leave this type.
+///
+/// Comfort noise: the module outputs near-digital silence (-80 dBFS) in 31-39% of a
+/// call whenever the far end pauses (10-14 recordings), unlike a system call which
+/// keeps a faint background. Those 0.3-1.2 s of dead air sound like the line dropped,
+/// so near-silent frames and playback gaps are filled with soft noise that follows
+/// the far end's own background level (-66…-54 dBFS).
 final class DownlinkJitter: @unchecked Sendable {
     static let frame = 160
     /// Playback (re)starts after 60 ms is buffered.
@@ -18,6 +24,9 @@ final class DownlinkJitter: @unchecked Sendable {
     /// Hard ceiling (360 ms): a burst beyond it drops the oldest frame immediately.
     static let maxFrames = 18
     static let gapEventNanos: UInt64 = 80_000_000
+    /// Frames below -70 dBFS count as dead air; -70…-45 dBFS is the far-end background.
+    static let silenceRMS: Float = 0.000316, backgroundRMS: Float = 0.0056
+    static let comfortMin: Float = 0.0005, comfortMax: Float = 0.002, comfortDefault: Float = 0.001
 
     struct Event { let kind: String; let at: UInt64; let value: UInt64 }
 
@@ -35,6 +44,9 @@ final class DownlinkJitter: @unchecked Sendable {
     private var depthPeak = 0, gapMax: UInt64 = 0
     private var squares: Double = 0, levelSamples = 0, levelPeak = 0, levelQuiet = 0, levelClipped = 0
     private var events: [Event] = []
+    private var noiseFloor = DownlinkJitter.comfortDefault
+    private var seed: UInt32 = 0x9E37_79B9
+    private var smooth: Float = 0
 
     init() { ring = .allocate(capacity: capacity); ring.initialize(repeating: 0, count: capacity) }
     deinit { ring.deallocate() }
@@ -47,12 +59,21 @@ final class DownlinkJitter: @unchecked Sendable {
     func reset() {
         os_unfair_lock_lock(&lock); defer { os_unfair_lock_unlock(&lock) }
         head = 0; count = 0; buffering = true; started = false; last = 0; total = 0
+        noiseFloor = Self.comfortDefault; smooth = 0
         highSince = nil; lastPush = nil
     }
 
     private func eventLocked(_ kind: String, at: UInt64, value: UInt64) {
         if events.count < 16 { events.append(Event(kind: kind, at: at, value: value)) }
     }
+    /// Soft low-passed noise with the given RMS; allocation-free for the render thread.
+    private func noiseLocked(_ rms: Float) -> Float {
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5
+        let white = Float(Int32(bitPattern: seed)) / Float(Int32.max)
+        smooth = 0.6 * smooth + 0.4 * white
+        return smooth * rms / 0.289
+    }
+    private var comfortLevel: Float { min(Self.comfortMax, max(Self.comfortMin, noiseFloor)) }
     private func dropOldestLocked() {
         head = (head + Self.frame) % capacity; count -= Self.frame
     }
@@ -70,9 +91,13 @@ final class DownlinkJitter: @unchecked Sendable {
             dropOldestLocked(); overflow += 1
             eventLocked("down_trim", at: now, value: UInt64(Self.maxFrames))
         }
+        let rms = (samples.reduce(Float(0)) { $0 + $1 * $1 } / Float(Self.frame)).squareRoot()
+        let dead = rms < Self.silenceRMS
+        if !dead && rms < Self.backgroundRMS { noiseFloor = 0.9 * noiseFloor + 0.1 * rms }
         var tail = (head + count) % capacity
         for sample in samples {
-            ring[tail] = sample; tail += 1; if tail == capacity { tail = 0 }
+            ring[tail] = dead ? noiseLocked(comfortLevel) : sample
+            tail += 1; if tail == capacity { tail = 0 }
             let magnitude = Int(min(32768, abs(sample) * 32768))
             squares += Double(magnitude * magnitude); levelPeak = max(levelPeak, magnitude)
             if magnitude < 104 { levelQuiet += 1 }
@@ -111,13 +136,15 @@ final class DownlinkJitter: @unchecked Sendable {
                 eventLocked("down_underrun", at: now, value: UInt64(wanted - take))
             }
         }
-        // Gap: fade the last sample out over 5 ms instead of a hard click, then silence.
+        // Gap: fade the last sample out over 5 ms instead of a hard click, then comfort
+        // noise once the call has audio (before the first frame stays silent).
         let missing = wanted - i
         if missing > 0 {
             if started { concealed += missing }
             var level = last
+            let noise = started ? comfortLevel : 0
             while i < wanted {
-                level *= 0.9; out[i] = level; i += 1
+                level *= 0.9; out[i] = level + (noise > 0 ? noiseLocked(noise) : 0); i += 1
             }
             last = 0
         }
