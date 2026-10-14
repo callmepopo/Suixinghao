@@ -143,8 +143,9 @@ final class VoiceAudio {
             throw APIError(message: "当前音频设备无法建立通话通道。")
         }
         let frames = outgoing
-        // nil follows the device's current format (AirPods 16/24 kHz, phone 48 kHz);
-        // the converter adapts per buffer, so no cached format is forced on hardware.
+        // Use the live hardware format explicitly. On the same engine a nil format
+        // inherits the previous device's rate (15Pro log: HW 48 kHz vs tap 24 kHz after
+        // leaving AirPods → start fails -10868). The converter adapts per buffer.
         let block: AVAudioNodeTapBlock = { buffer, _ in
             #if DEBUG
             frames.noteInput(buffer)
@@ -157,12 +158,12 @@ final class VoiceAudio {
         }
         #if os(iOS)
         if #available(iOS 27.0, *) {
-            try graph.inputNode.__installTap(onBus: 0, bufferSize: 1024, format: nil, error: (), block: block)
+            try graph.inputNode.__installTap(onBus: 0, bufferSize: 1024, format: hardware, error: (), block: block)
         } else {
-            graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil, block: block)
+            graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: hardware, block: block)
         }
         #else
-        graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil, block: block)
+        graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: hardware, block: block)
         #endif
         tapInstalled = true
     }

@@ -1,5 +1,16 @@
+import AVKit
 import SwiftUI
 import UIKit
+
+/// System audio route list (iPhone / Speaker / AirPods), the same control as the native call screen.
+struct SystemAudioRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let view = AVRoutePickerView()
+        view.prioritizesVideoDevices = false
+        return view
+    }
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
@@ -108,14 +119,14 @@ struct PhoneView: View {
                                 if owned {
                                     HStack {
                                         Button { model.toggleMute() } label: { Label(model.muted ? "取消静音" : "静音", systemImage: model.muted ? "mic.slash.fill" : "mic.fill") }
-                                        Menu {
-                                            ForEach(model.audioRoutes) { route in
-                                                Button { model.selectAudioRoute(route.id) } label: {
-                                                    Label(route.name, systemImage: model.selectedAudioRoute == route.id ? "checkmark" : route.symbol)
-                                                }
-                                            }
-                                        } label: { Label("声音设备", systemImage: "speaker.wave.2.fill") }
-                                            .disabled(!model.mediaConnected || model.callBusy)
+                                        // iOS ignores app requests to leave AirPods for the receiver
+                                        // (15Pro log: only the mic moved). The system picker routes reliably.
+                                        Label("声音设备", systemImage: "speaker.wave.2.fill")
+                                            .padding(.horizontal, 12).padding(.vertical, 7)
+                                            .background(.tint.opacity(0.15), in: Capsule())
+                                            .foregroundStyle(.tint)
+                                            .overlay { SystemAudioRoutePicker().opacity(0.02) }
+                                            .disabled(!model.mediaConnected)
                                     }.buttonStyle(.bordered)
                                     Text("当前声音：" + model.audioRouteName)
                                         .font(.footnote).foregroundStyle(.secondary)

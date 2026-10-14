@@ -100,14 +100,23 @@ class AVAudioNode {
     private(set) var tapped = false
     private var block: AVAudioNodeTapBlock?
     var tapInstalls = 0
+    // Real 15Pro (build48 log): on the same engine the input node's output format stays
+    // at the first device's rate (AirPods 24 kHz) after the hardware moves to 48 kHz.
+    // A nil-format tap inherits that stale rate and engine start fails with -10868.
+    private var cachedRate: Double?
     func hardware() -> AVAudioFormat { AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AVAudioSession.value.hardwareRate, channels: 1, interleaved: false)! }
-    func outputFormat(forBus: Int) -> AVAudioFormat { hardware() }
+    func outputFormat(forBus: Int) -> AVAudioFormat {
+        AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: cachedRate ?? AVAudioSession.value.hardwareRate, channels: 1, interleaved: false)!
+    }
     func inputFormat(forBus: Int) -> AVAudioFormat { hardware() }
     func installTap(onBus: Int, bufferSize: UInt32, format: AVAudioFormat?, block: @escaping AVAudioNodeTapBlock) {
         precondition(!tapped, "Duplicate capture tap")
         precondition(format == nil || format!.isEqual(hardware()), "Forced tap format conflicts with hardware (build41 crash)")
+        let applied = format ?? outputFormat(forBus: onBus)
+        cachedRate = applied.sampleRate
         tapped = true; self.block = block; tapInstalls += 1
     }
+    var tapMatchesHardware: Bool { !tapped || cachedRate == AVAudioSession.value.hardwareRate }
     func removeTap(onBus: Int) { precondition(tapped); tapped = false; block = nil }
     func deliver() {
         guard let block else { return }
@@ -135,6 +144,7 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
     func start() throws {
         if AVAudioSession.value.startFailures > 0 { AVAudioSession.value.startFailures -= 1; throw APIError(message: "synthetic start failure") }
         precondition(outputRate == 0 || outputRate == AVAudioSession.value.hardwareRate, "Mixer bound to stale output rate")
+        if !inputNode.tapMatchesHardware { throw APIError(message: "formats don't match (-10868)") }
         isRunning = true; starts += 1; inputNode.deliver()
     }
     func stop() { isRunning = false }
