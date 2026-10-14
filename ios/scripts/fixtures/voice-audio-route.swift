@@ -28,14 +28,24 @@ final class AVAudioSession {
     static func sharedInstance() -> AVAudioSession { value }
     static let mic = PortDescription(uid: "phone-mic", portType: .builtInMic, portName: "iPhone 麦克风")
     static let pods = PortDescription(uid: "synthetic-pods", portType: .bluetoothHFP, portName: "Test AirPods")
-    var availableInputs: [PortDescription]? = [mic, pods]
+    var connected: [PortDescription] = [mic, pods]
+    var mode = Mode.voiceChat
+    var categoryOptions: CategoryOptions = [.allowBluetoothHFP]
+    // voiceChat implicitly enables HFP; only default mode without the option hides it.
+    var hfpAllowed: Bool { mode == .voiceChat || categoryOptions.contains(.allowBluetoothHFP) }
+    var availableInputs: [PortDescription]? {
+        get { connected.filter { $0.portType != .bluetoothHFP || hfpAllowed } }
+        set { connected = newValue ?? [] }
+    }
     var currentRoute = Route(inputs: [], outputs: [])
     var hardwareRate = 48000.0
     var preferred: PortDescription?
     var speakerOverride = false
     var categoryChanges = 0, overrides = 0, preferredRequests = 0
     var startFailures = 0
-    func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws { categoryChanges += 1 }
+    func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws {
+        categoryChanges += 1; self.mode = mode; categoryOptions = options; apply(.categoryChange)
+    }
     func setPreferredIOBufferDuration(_ value: Double) throws {}
     func setActive(_ value: Bool, options: SetActiveOptions = []) throws {}
     func setPreferredInput(_ port: PortDescription?) throws { preferredRequests += 1; preferred = port; apply(.override) }
@@ -43,13 +53,17 @@ final class AVAudioSession {
     /// iOS voiceChat routing: speaker override wins; else the preferred (or newest) HFP device; else receiver.
     func apply(_ reason: RouteChangeReason) {
         let before = currentRoute.outputs.first?.portType
-        let connected = availableInputs ?? []
-        let hfp = preferred.flatMap { p in connected.first { $0.uid == p.uid && $0.portType == .bluetoothHFP } }
-            ?? (preferred == nil ? connected.first { $0.portType == .bluetoothHFP } : nil)
+        let usable = availableInputs ?? []
+        let anyHFP = usable.first { $0.portType == .bluetoothHFP }
+        let hfp = preferred.flatMap { p in usable.first { $0.uid == p.uid && $0.portType == .bluetoothHFP } }
+            ?? (preferred == nil || preferred?.portType == .bluetoothHFP ? anyHFP : nil)
         if speakerOverride {
             currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "spk", portType: .builtInSpeaker, portName: "Speaker")])
         } else if let hfp {
             currentRoute = Route(inputs: [hfp], outputs: [hfp])
+        } else if let anyHFP {
+            // iOS 27 (15Pro log): preferring the built-in mic moves only the input; output stays on AirPods.
+            currentRoute = Route(inputs: [Self.mic], outputs: [anyHFP])
         } else {
             currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "rcv", portType: .builtInReceiver, portName: "Receiver")])
         }
@@ -58,7 +72,7 @@ final class AVAudioSession {
         NotificationCenter.default.post(name: Self.routeChangeNotification, object: self, userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
     }
     func disconnectPods() {
-        availableInputs = [Self.mic]
+        connected = [Self.mic]
         if preferred?.uid == Self.pods.uid { preferred = nil }
         apply(.oldDeviceUnavailable)
     }
@@ -171,7 +185,7 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         precondition(session.categoryChanges == 0, "CallKit owns the category")
         func check(_ id: String, _ port: AVAudioSession.Port, _ rate: Double, _ label: String) async throws {
             let taps = audio.outgoing.captureStats().taps
-            try audio.selectRoute(id); await settle()
+            try audio.selectRoute(id); try? await Task.sleep(nanoseconds: 2_500_000_000)
             precondition(session.currentRoute.outputs.first?.portType == port, label + ": wrong output")
             precondition(selected == id && message == nil, label + ": checkmark must follow real output")
             precondition(audio.isEngineRunning && audio.isActiveCall && audio.muted, label + ": call/mute lost")
@@ -184,7 +198,11 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         try await check("receiver", .builtInReceiver, 48000, "AirPods→听筒")
         try await check("speaker", .builtInSpeaker, 48000, "听筒→扬声器")
         try await check(pods, .bluetoothHFP, 16000, "扬声器→AirPods")
-        precondition(session.categoryChanges == 0, "Never change CallKit category/mode mid-call")
+        // Receiver needed the phone-only fallback; choosing AirPods restored voiceChat + HFP.
+        precondition(session.categoryChanges > 0 && session.mode == .voiceChat && session.categoryOptions.contains(.allowBluetoothHFP))
+        try await check("receiver", .builtInReceiver, 48000, "AirPods→听筒（再次）")
+        precondition(session.mode == .default && routes.contains { $0.id == pods }, "AirPods stays selectable while hidden")
+        try await check(pods, .bluetoothHFP, 16000, "听筒→AirPods（恢复蓝牙）")
         // Removing AirPods mid-call: falls back to receiver, call kept, capture rebound.
         session.disconnectPods(); await settle()
         precondition(selected == "receiver" && audio.isEngineRunning && audio.isActiveCall && message == nil)

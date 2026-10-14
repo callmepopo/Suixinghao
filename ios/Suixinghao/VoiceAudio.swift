@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 
 /// One in-call sound device. Bluetooth ids hold the port UID only in memory.
 struct CallAudioRoute: Identifiable, Equatable {
@@ -23,6 +24,13 @@ final class VoiceAudio {
     private var scheduled = 0
     private var generation = UUID()
     private var routeRecovery = UUID()
+    /// Set while Bluetooth calling is temporarily disabled to reach the receiver.
+    private var phoneOnly: (mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
+    /// Bluetooth devices stay selectable while phoneOnly hides them from availableInputs.
+    private var knownDevices: [CallAudioRoute] = []
+    private var routeTask: Task<Void, Never>?
+    /// Port types only (no names, ids, numbers); read with `log collect` when debugging routes.
+    private let routeLog = Logger(subsystem: "com.junpo.suixinghao", category: "audio-route")
     private var observers: [NSObjectProtocol] = []
     /// Device changes never end the call; failures only surface a message.
     var onAudioStatusChanged: ((String?) -> Void)?
@@ -173,9 +181,15 @@ final class VoiceAudio {
         onSpeakerChanged?(output?.portType == .builtInSpeaker)
         var routes = [CallAudioRoute(id: CallAudioRoute.receiver, name: "iPhone 听筒", symbol: "iphone"),
                       CallAudioRoute(id: CallAudioRoute.speaker, name: "扬声器", symbol: "speaker.wave.3.fill")]
-        for port in session.availableInputs ?? [] where Self.externalInputs.contains(port.portType) {
-            routes.append(CallAudioRoute(id: "device:" + port.uid, name: port.portName, symbol: "headphones"))
+        let live = (session.availableInputs ?? []).filter { Self.externalInputs.contains($0.portType) }
+            .map { CallAudioRoute(id: "device:" + $0.uid, name: $0.portName, symbol: "headphones") }
+        // While phoneOnly hides Bluetooth, keep the devices seen earlier in this call selectable.
+        if phoneOnly == nil { knownDevices = live } else {
+            for device in live where !knownDevices.contains(device) { knownDevices.append(device) }
         }
+        routes += knownDevices
+        let input = session.currentRoute.inputs.first?.portType.rawValue ?? "none"
+        routeLog.notice("route in=\(input, privacy: .public) out=\((output?.portType.rawValue ?? "none"), privacy: .public) phoneOnly=\(self.phoneOnly != nil, privacy: .public) engine=\(self.engine?.isRunning == true, privacy: .public)")
         // The checkmark follows the real output, never the selected microphone.
         let current: String
         switch output?.portType {
@@ -195,25 +209,81 @@ final class VoiceAudio {
     func setSpeaker(_ enabled: Bool) throws {
         try selectRoute(enabled ? CallAudioRoute.speaker : CallAudioRoute.receiver)
     }
-    /// Apple's standard in-call routing: speaker is an output override; receiver
-    /// and Bluetooth are chosen through the preferred input. Never changes the
-    /// CallKit category/mode or rebuilds the engine.
+    private static func outputIsExternal(_ session: AVAudioSession) -> Bool {
+        guard let port = session.currentRoute.outputs.first?.portType else { return false }
+        return port != .builtInReceiver && port != .builtInSpeaker
+    }
+    /// Speaker is an output override; receiver and Bluetooth use the preferred input.
+    /// iOS 27 keeps output on AirPods when only the mic is preferred (15Pro log), so the
+    /// receiver falls back to temporarily disabling Bluetooth calling for this call;
+    /// choosing a Bluetooth device restores the original category. The engine is kept.
     func selectRoute(_ id: String) throws {
         guard engine != nil else { throw APIError(message: "声音通道尚未就绪。") }
         let session = AVAudioSession.sharedInstance()
+        routeTask?.cancel(); routeTask = nil
+        routeLog.notice("select \(id.hasPrefix("device:") ? "device" : id, privacy: .public)")
         if id == CallAudioRoute.speaker {
             try session.overrideOutputAudioPort(.speaker)
-        } else {
-            let inputs = session.availableInputs ?? []
-            let port = id == CallAudioRoute.receiver
-                ? inputs.first { $0.portType == .builtInMic }
-                : inputs.first { "device:" + $0.uid == id }
-            guard let port else { throw APIError(message: "该声音设备已断开，请重新选择。") }
+        } else if id == CallAudioRoute.receiver {
+            guard let mic = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) else {
+                throw APIError(message: "听筒暂不可用，请选择其他声音设备。")
+            }
             try session.overrideOutputAudioPort(.none)
-            try session.setPreferredInput(port)
+            try session.setPreferredInput(mic)
+            routeTask = Task { [weak self] in await self?.forceReceiverIfNeeded() }
+        } else {
+            guard knownDevices.contains(where: { $0.id == id }) || (session.availableInputs ?? []).contains(where: { "device:" + $0.uid == id }) else {
+                throw APIError(message: "该声音设备已断开，请重新选择。")
+            }
+            try session.overrideOutputAudioPort(.none)
+            if let saved = phoneOnly {
+                try session.setCategory(.playAndRecord, mode: saved.mode, options: saved.options)
+                phoneOnly = nil
+            }
+            if let port = (session.availableInputs ?? []).first(where: { "device:" + $0.uid == id }) {
+                try session.setPreferredInput(port)
+            } else {
+                // Bluetooth reappears shortly after re-enabling it; select once it is listed.
+                routeTask = Task { [weak self] in await self?.selectDeviceWhenAvailable(id) }
+            }
         }
         onAudioStatusChanged?(nil)
         reportSpeakerRoute()
+    }
+    private func forceReceiverIfNeeded() async {
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        let session = AVAudioSession.sharedInstance()
+        guard !Task.isCancelled, engine != nil, Self.outputIsExternal(session) else { return }
+        routeLog.notice("receiver fallback: disable Bluetooth calling")
+        do {
+            if phoneOnly == nil { phoneOnly = (session.mode, session.categoryOptions) }
+            // voiceChat implicitly enables HFP, so the phone-only session uses default mode.
+            try session.setCategory(.playAndRecord, mode: .default, options: [])
+            try session.overrideOutputAudioPort(.none)
+            if let mic = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) {
+                try session.setPreferredInput(mic)
+            }
+        } catch {
+            onAudioStatusChanged?("系统未允许切到听筒，通话保留。可选择扬声器或蓝牙设备。")
+            return
+        }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        guard !Task.isCancelled, engine != nil else { return }
+        reportSpeakerRoute()
+        if Self.outputIsExternal(session) { onAudioStatusChanged?("系统未允许切到听筒，通话保留。可选择扬声器或蓝牙设备。") }
+    }
+    private func selectDeviceWhenAvailable(_ id: String) async {
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, engine != nil else { return }
+            let session = AVAudioSession.sharedInstance()
+            if let port = (session.availableInputs ?? []).first(where: { "device:" + $0.uid == id }) {
+                try? session.setPreferredInput(port)
+                reportSpeakerRoute()
+                return
+            }
+        }
+        onAudioStatusChanged?("蓝牙设备未能重新连接，通话保留。请重新选择声音设备。")
     }
     /// Manual retry after a failed recovery; uses the same graph.
     func retryAudio() {
@@ -334,6 +404,7 @@ final class VoiceAudio {
         callKitManaged = false
         outgoing.enable(false); earlyMedia = false; active = false; muted = false
         routeRecovery = UUID()
+        routeTask?.cancel(); routeTask = nil; phoneOnly = nil; knownDevices = []
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         generation = UUID(); scheduled = 0
         let wasRunning = engine != nil

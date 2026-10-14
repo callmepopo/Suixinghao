@@ -1,28 +1,5 @@
-import AVKit
 import SwiftUI
 import UIKit
-
-/// System audio route list (iPhone / Speaker / AirPods), the same control as the native call screen.
-/// The visible picker icon opens it directly; the text button forwards a tap to the same picker.
-struct SystemAudioRoutePicker: UIViewRepresentable {
-    @MainActor static weak var current: AVRoutePickerView?
-    @MainActor static func present() {
-        func button(in view: UIView) -> UIButton? {
-            if let button = view as? UIButton { return button }
-            for child in view.subviews { if let found = button(in: child) { return found } }
-            return nil
-        }
-        guard let picker = current else { return }
-        button(in: picker)?.sendActions(for: .touchUpInside)
-    }
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let view = AVRoutePickerView()
-        view.prioritizesVideoDevices = false
-        Self.current = view
-        return view
-    }
-    func updateUIView(_ view: AVRoutePickerView, context: Context) { Self.current = view }
-}
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
@@ -131,15 +108,14 @@ struct PhoneView: View {
                                 if owned {
                                     HStack {
                                         Button { model.toggleMute() } label: { Label(model.muted ? "取消静音" : "静音", systemImage: model.muted ? "mic.slash.fill" : "mic.fill") }
-                                        // iOS ignores app requests to leave AirPods for the receiver
-                                        // (15Pro log: only the mic moved). The system picker routes reliably.
-                                        Button { SystemAudioRoutePicker.present() } label: {
-                                            HStack(spacing: 4) {
-                                                SystemAudioRoutePicker().frame(width: 24, height: 24)
-                                                Text("声音设备")
+                                        Menu {
+                                            ForEach(model.audioRoutes) { route in
+                                                Button { model.selectAudioRoute(route.id) } label: {
+                                                    Label(route.name, systemImage: model.selectedAudioRoute == route.id ? "checkmark" : route.symbol)
+                                                }
                                             }
-                                        }
-                                        .disabled(!model.mediaConnected)
+                                        } label: { Label("声音设备", systemImage: "speaker.wave.2.fill") }
+                                            .disabled(!model.mediaConnected || model.callBusy)
                                     }.buttonStyle(.bordered)
                                     Text("当前声音：" + model.audioRouteName)
                                         .font(.footnote).foregroundStyle(.secondary)
