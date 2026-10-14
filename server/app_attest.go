@@ -298,10 +298,20 @@ func verifyAppAttest(proof attestProof, challenge, environment, storedKey string
 		if !ok {
 			return fail()
 		}
-		if category, ok := em["apple_validation_category_01"]; ok {
-			allowed := category == uint64(2) || category == uint64(4)
+		if raw, ok := em["apple_validation_category_01"]; ok {
+			// iOS sends a 4-byte little-endian byte string; accept a CBOR integer too.
+			category := uint64(0)
+			switch v := raw.(type) {
+			case uint64:
+				category = v
+			case []byte:
+				if len(v) == 4 {
+					category = uint64(binary.LittleEndian.Uint32(v))
+				}
+			}
+			allowed := category == 2 || category == 4
 			if environment == "sandbox" {
-				allowed = category == uint64(3)
+				allowed = category == 3
 			}
 			if !allowed {
 				return fail()

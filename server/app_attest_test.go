@@ -110,3 +110,51 @@ func TestAppAttestCryptographicVerification(t *testing.T) {
 		t.Fatal("indefinite CBOR")
 	}
 }
+
+// Real iOS 27 TestFlight attestations set the extension flag and encode the
+// validation category as a 4-byte little-endian byte string, not a CBOR integer.
+func TestAppAttestValidationCategoryByteString(t *testing.T) {
+	t.Setenv("VOICE_WEB_APP_ATTEST_APP_ID", "SYNTHETIC0.com.junpo.suixinghao")
+	now := time.Now()
+	challenge := "synthetic-challenge"
+	rootKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rt := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Synthetic CA"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	rd, _ := x509.CreateCertificate(rand.Reader, rt, rt, &rootKey.PublicKey, rootKey)
+	root, _ := x509.ParseCertificate(rd)
+	old := appAttestRoot
+	appAttestRoot = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rd})
+	t.Cleanup(func() { appAttestRoot = old })
+	build := func(aaguid string, category []byte) attestProof {
+		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		id := sha256.Sum256(elliptic.Marshal(key.Curve, key.X, key.Y))
+		rp := sha256.Sum256([]byte("SYNTHETIC0.com.junpo.suixinghao"))
+		auth := append([]byte{}, rp[:]...)
+		auth = append(auth, 0xc0, 0, 0, 0, 0)
+		auth = append(auth, []byte(aaguid)...)
+		auth = append(auth, 0, 32)
+		auth = append(auth, id[:]...)
+		auth = append(auth, cborFixture(map[any]any{uint64(1): uint64(2), uint64(3): int64(-7), int64(-1): uint64(1), int64(-2): key.X.FillBytes(make([]byte, 32)), int64(-3): key.Y.FillBytes(make([]byte, 32))})...)
+		auth = append(auth, cborFixture(map[any]any{"apple_bundle_version_01": "53", "apple_validation_category_01": category})...)
+		h := sha256.Sum256([]byte(challenge))
+		nonce := sha256.Sum256(append(append([]byte{}, auth...), h[:]...))
+		ext, _ := asn1.Marshal(struct {
+			Nonce []byte `asn1:"tag:1,explicit"`
+		}{nonce[:]})
+		lt := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 2, 840, 113635, 100, 8, 2}, Value: ext}}}
+		leaf, _ := x509.CreateCertificate(rand.Reader, lt, root, &key.PublicKey, rootKey)
+		object := cborFixture(map[any]any{"fmt": "apple-appattest", "authData": auth, "attStmt": map[any]any{"x5c": []any{leaf, rd}, "receipt": []byte("synthetic")}})
+		return attestProof{KeyID: base64.StdEncoding.EncodeToString(id[:]), Object: base64.StdEncoding.EncodeToString(object)}
+	}
+	production := "appattest\x00\x00\x00\x00\x00\x00\x00"
+	if _, e := verifyAppAttest(build(production, []byte{2, 0, 0, 0}), challenge, "production", "", 0, now); e != nil {
+		t.Fatal("TestFlight category byte string rejected:", e)
+	}
+	if _, e := verifyAppAttest(build("appattestdevelop", []byte{3, 0, 0, 0}), challenge, "sandbox", "", 0, now); e != nil {
+		t.Fatal("development category byte string rejected:", e)
+	}
+	for _, category := range [][]byte{{3, 0, 0, 0}, {2, 0, 0}, {0, 0, 0, 2}} {
+		if _, e := verifyAppAttest(build(production, category), challenge, "production", "", 0, now); e == nil {
+			t.Fatal("unexpected production category accepted", category)
+		}
+	}
+}
