@@ -219,6 +219,12 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         try await check(pods, .bluetoothHFP, 16000, "扬声器→AirPods")
         // Voice processing: no configuration change on a switch; a changed output must still rebuild.
         session.keepsRunning = true
+        // AirPods→receiver first moves only the mic for ~2 s (build58 field: 1.8 s lost here);
+        // a changed input must rebuild at once, before the receiver fallback.
+        let interimTaps = audio.outgoing.captureStats().taps
+        try audio.selectRoute("receiver"); try? await Task.sleep(nanoseconds: 450_000_000)
+        precondition(session.currentRoute.inputs.first?.portType == .builtInMic && session.currentRoute.outputs.first?.portType == .bluetoothHFP, "interim route")
+        precondition(audio.outgoing.captureStats().taps > interimTaps && AVAudioConverter.sourceRates.last == 48000, "语音处理：只换麦克风的过渡期必须立即重建")
         try await check("receiver", .builtInReceiver, 48000, "语音处理：AirPods→听筒（引擎不停）")
         try await check(pods, .bluetoothHFP, 16000, "语音处理：听筒→AirPods（引擎不停）")
         session.keepsRunning = false
@@ -275,6 +281,6 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         try audio.selectRoute("receiver"); await settle()
         precondition(selected == "receiver" && audio.isEngineRunning && routes.count == 2)
         audio.stop()
-        print("通过：AirPods↔扬声器↔听筒六向切换、显示按实际输出、保持同一引擎与静音、采音按新格式重装、语音处理下引擎不停时按新设备重建、拔出AirPods不挂断、中断恢复、启动失败重试与只提示不挂断、新旧通话隔离、无蓝牙听筒↔扬声器（模拟，未证明真机声音）")
+        print("通过：AirPods↔扬声器↔听筒六向切换、显示按实际输出、保持同一引擎与静音、采音按新格式重装、语音处理下引擎不停时换麦克风或出声设备即重建、拔出AirPods不挂断、中断恢复、启动失败重试与只提示不挂断、新旧通话隔离、无蓝牙听筒↔扬声器（模拟，未证明真机声音）")
     }
 }
