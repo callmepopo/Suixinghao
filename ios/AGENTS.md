@@ -10,3 +10,11 @@
 - `scripts/build.sh` 用无签名模拟器；`scripts/archive.sh` 默认无签名 Release。`--signed` 是干净源码的正式 Release 归档与 App Store Connect 本地 IPA 导出；`--testing` 是允许 dirty 源码的 Debug/sandbox 本地 IPA。两者均显式读取 `SXH_DEVELOPMENT_TEAM`，默认仅使用本机已有资产。只有明确授权且设置 `SXH_ALLOW_PROVISIONING_UPDATES=1` 时允许 Xcode 联网补配该 App 身份的签名资产。测试输出可通过 `SXH_BUILD_OUTPUT` 指向仓库外私有目录；归档脚本不安装、上传、OTA 或部署。
 - 修改后运行 `scripts/check.sh` 与相应模拟器构建，区分合成检查、编译、真机通话、生产推送、锁屏及商店审核。没有对应证据不得记通过。
 - 修改数据流或 required-reason API 时同步 `PrivacyInfo.xcprivacy`、本目录 README 与仓库隐私/分发材料。正式 App Store 资料需要另外验证实际收集类别，不能从无广告或无 SDK 推断“无数据收集”。
+
+## 真机音频与系统行为问题的处理流程（0.1.10–0.1.12 教训）
+
+- 真机故障先取证据再改代码：已配对设备用 `sudo log collect --device-udid … --last 30m` 收集统一日志，过滤 `com.apple.avfaudio`、`com.apple.coreaudio` 及本App `audio-route` 类别；没有现场证据不得凭推测叠加补偿逻辑。
+- 一次只修一个已证实的原因。先让离线替身复现现场序列，旧代码必须失败、新代码通过，再签名分发。
+- 苹果文档或经验写法与 iOS 实际行为可能不同（例：iOS 27 连接 AirPods 时优先手机麦克风只切输入；AVRoutePickerView 管理媒体播放路由而非通话；同一 AVAudioEngine 的 nil 格式 tap 会沿用旧设备采样率）。对系统行为的新假设先做最小真机验证，不整版替换既有可用实现。
+- 失败版本先回到最近一次真机可用版本再做最小改动，不在失败版本上继续堆叠修补。
+- 用户反馈按“步骤—页面显示—实际出声设备”记录；页面勾选、API返回成功或不挂断都不能代替实际双向声音。
