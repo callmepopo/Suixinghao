@@ -21,6 +21,7 @@
 - 按1→2→3推进，上一步用户确认通过后才进入下一步；未确认的结果不记通过。
 - 第1步通过后，从同一干净提交用`--module ios --build-only`递增构建号，打Production包上传内部TestFlight，只关联SE3内部组。SE3不安装开发包，以免Production线路无手机覆盖。
 - 第2步通过后，按本文件合入main、同步GitHub，再将同一构建关联外部组并提交Beta审核；不重新打包。新产品版本的首个外部构建按需审核。
+- 第3步先同步main／develop源码与候选标签，带服务安装包的GitHub Release在外部审核批准后再发布，避免网友先升级服务、App仍未更新；服务端须保持兼容上一外部App构建。
 - 第2步上传与第3步提交审核分别需要用户当轮明确授权；App Store正式审核另行确认。
 - 本机无分发证书或Xcode未登录账号时，正式导出与altool上传使用Apple账号项目的App Store Connect API Key（`-authenticationKey*`云端签名）；凭据不进入本仓库。
 - SE3通过只证明App与Production中继线路可用，不代表网友NAS配置或其各自授权通过。
