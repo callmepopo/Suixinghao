@@ -14,7 +14,7 @@ final class AVAudioSession {
     struct PortDescription { let uid: String; let portType: Port; let portName: String }
     struct Route { var inputs: [PortDescription]; var outputs: [PortDescription] }
     enum RouteChangeReason: UInt { case unknown, newDeviceAvailable, oldDeviceUnavailable, categoryChange, override, routeConfigurationChange }
-    enum InterruptionType: UInt { case began }
+    enum InterruptionType: UInt { case began, ended }
     enum Category { case playback, playAndRecord }
     enum Mode { case `default` }
     struct CategoryOptions: OptionSet {
@@ -34,16 +34,26 @@ final class AVAudioSession {
     var preferredRequests = 0, overrideRequests = 0
     var startFailures = 0
     var activeCalls = 0
+    var interruptOnSelection = false
     func setCategory(_ category: Category, mode: Mode, options: CategoryOptions = []) throws {}
     func setPreferredIOBufferDuration(_ value: Double) throws {}
     func setActive(_ value: Bool, options: SetActiveOptions = []) throws { activeCalls += 1 }
     func setPreferredInput(_ port: PortDescription?) throws {
         preferredRequests += 1
         route(port?.portType == .bluetoothHFP ? .external : .receiver, reason: .override)
+        interruptIfRequested()
     }
     func overrideOutputAudioPort(_ port: PortOverride) throws {
         overrideRequests += 1
         route(port == .speaker ? .speaker : .receiver, reason: .override)
+        interruptIfRequested()
+    }
+    private func interruptIfRequested() {
+        if interruptOnSelection {
+            interruptOnSelection = false
+            NotificationCenter.default.post(name: Self.interruptionNotification, object: self,
+                userInfo: [AVAudioSessionInterruptionTypeKey: InterruptionType.began.rawValue])
+        }
     }
     func route(_ kind: AudioRoutePolicy.Output, reason: RouteChangeReason) {
         switch kind {
@@ -55,7 +65,7 @@ final class AVAudioSession {
         NotificationCenter.default.post(name: Self.routeChangeNotification, object: self, userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
     }
     func reset() {
-        availableInputs = [Self.mic, Self.car]; preferredRequests = 0; overrideRequests = 0; activeCalls = 0; startFailures = 0
+        availableInputs = [Self.mic, Self.car]; preferredRequests = 0; overrideRequests = 0; activeCalls = 0; startFailures = 0; interruptOnSelection = false
         route(.receiver, reason: .unknown)
     }
 }
@@ -114,19 +124,24 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         if AVAudioSession.value.startFailures > 0 { AVAudioSession.value.startFailures -= 1; throw APIError(message: "Synthetic transient route") }
         isRunning = true; starts += 1
     }
+    func pause() { isRunning = false }
     func stop() { isRunning = false }
     func configurationChanged() { isRunning = false; NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: self) }
 }
 struct APIError: LocalizedError { let message: String; var errorDescription: String? { message } }
 
 @main struct AudioRouteRuntimeChecks {
-    @MainActor static func settle() async { try? await Task.sleep(nanoseconds: 800_000_000) }
+    @MainActor static func settle() async { try? await Task.sleep(nanoseconds: 2_100_000_000) }
     @MainActor static func main() async throws {
         let session = AVAudioSession.value
         session.reset()
         let audio = VoiceAudio()
         var failures = 0
-        audio.onInterrupted = { failures += 1 }
+        var audioMessage: String?
+        audio.onAudioStatusChanged = { message in
+            audioMessage = message
+            if message?.contains("切换未恢复") == true { failures += 1 }
+        }
         var routes: [CallAudioRoute] = []
         audio.onRoutesChanged = { list, _, _ in routes = list }
         audio.beginRouting(UUID())
@@ -137,6 +152,28 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         precondition(AVAudioConverter.sourceRates.last == 16000)
         precondition(routes.contains { $0.id == "input:synthetic-car" })
         audio.setActiveCall(true); audio.setMuted(true)
+        // Choosing the current AirPods/HFP device must not churn the session.
+        let selections = session.preferredRequests, overrides = session.overrideRequests
+        try audio.selectRoute("input:synthetic-car")
+        precondition(session.preferredRequests == selections && session.overrideRequests == overrides)
+        // Real iOS can deactivate audio during device switching. This is a pause,
+        // not a hangup; CallKit reactivation must resume the existing call.
+        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: session,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+        precondition(audio.isActiveCall && audio.muted && !audio.isEngineRunning && audioMessage != nil)
+        graph.configurationChanged(); await settle()
+        precondition(!audio.isEngineRunning && failures == 0)
+        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: session,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
+        precondition(!audio.isEngineRunning) // No premature self-activation.
+        audio.audioSessionActivated(); await settle()
+        precondition(audio.isEngineRunning && audioMessage == nil && audio.isActiveCall && audio.muted)
+        // The interruption can arrive synchronously during the user's selection.
+        session.interruptOnSelection = true
+        try audio.selectRoute("speaker")
+        precondition(audio.isActiveCall && !audio.isEngineRunning && audioMessage != nil)
+        audio.audioSessionActivated(); await settle()
+        precondition(audio.isEngineRunning && audio.muted && audioMessage == nil)
         session.route(.speaker, reason: .override); graph.configurationChanged()
         await settle()
         precondition(audio.isEngineRunning && audio.muted && audio.isActiveCall && failures == 0)
@@ -166,10 +203,13 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         session.startFailures = 1
         graph.configurationChanged(); await settle()
         precondition(audio.isEngineRunning && audio.isWaitingTone && !audio.isActiveCall && audio.muted && failures == 0)
-        // Terminal recovery is bounded and emits one failure.
+        // Exhaustion is bounded, visibly retains the call, and permits explicit retry.
         session.startFailures = 10
         graph.configurationChanged(); await settle()
-        precondition(failures == 1)
+        precondition(failures == 1 && audioMessage != nil)
+        session.startFailures = 0
+        try audio.retryAudio(); await settle()
+        precondition(audio.isEngineRunning && audioMessage == nil && audio.muted)
         audio.stop()
         session.reset()
         audio.beginRouting(UUID()); session.route(.speaker, reason: .override)
@@ -187,6 +227,6 @@ struct APIError: LocalizedError { let message: String; var errorDescription: Str
         precondition(audio.isEngineRunning && newest.starts == count && failures == 1)
         precondition(session.activeCalls == 0) // Only CallKit owns activation/deactivation.
         audio.stop()
-        print("通过：实际VoiceAudio代码模拟HFP接入/采样率变化、系统免提回退修复、手动听筒优先、蓝牙断开续通话、暂态重试/超限、等待音/静音保留、旧引擎/任务隔离；无硬件实证")
+        print("通过：实际VoiceAudio代码模拟中断暂停不挂断、CallKit重新激活、恢复失败可重试、HFP接入/采样率变化、系统免提回退修复、手动听筒优先、蓝牙断开续通话、暂态重试/超限、等待音/静音保留、旧引擎/任务隔离；无硬件实证")
     }
 }

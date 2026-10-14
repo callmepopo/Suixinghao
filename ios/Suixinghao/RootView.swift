@@ -119,6 +119,11 @@ struct PhoneView: View {
                                     }.buttonStyle(.bordered)
                                     Text("当前声音：" + model.audioRouteName)
                                         .font(.footnote).foregroundStyle(.secondary)
+                                    if let message = model.audioRouteMessage {
+                                        Text(message).font(.footnote).foregroundStyle(.orange)
+                                        Button("重试声音") { model.retryCallAudio() }
+                                            .buttonStyle(.bordered).disabled(model.callBusy)
+                                    }
                                     #if DEBUG
                                     Text(model.audioDiagnostics)
                                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)

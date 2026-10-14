@@ -6,7 +6,7 @@
 
 > **当前测试版本：App 0.1.9/build40，服务端 0.1.5/build6。** 新增自动开通推送、签发台账、设置页版本和连接历史优化。15Pro开发build39与SE3 TestFlight build40已获维护者整体测试确认；自动模式绑定仍需网友环境独立验证。2026-10-13：build40已提交外部Beta审核，状态WAITING_FOR_BETA_REVIEW，批准后可供既有网友组安装。GitHub标记为测试发布，旧0.1.8/build37保留；本轮不提交App Store。
 
-本地开发候选App0.1.10补充锁屏免提恢复、车载蓝牙路由与设置页GitHub帮助入口，真机/车机待验，尚未替换公开0.1.9测试发布。
+本地开发候选App0.1.11修正0.1.10在AirPods切换时误挂断的处理，保留声音设备选择与设置GitHub入口；AirPods/锁屏/车机待复测，尚未替换公开0.1.9测试发布。
 
 [自动推送：前提与开通步骤](docs/automatic-push.md) · [部署指南](deploy/unraid/README.md) · [iOS 客户端](ios/README.md) · [接口规范](docs/API.md) · [已知限制](docs/limitations.md) · [问题反馈](https://github.com/callmepopo/Suixinghao/issues)
 

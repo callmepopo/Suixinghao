@@ -51,6 +51,7 @@ final class AppModel {
     var audioRoutes: [CallAudioRoute] = []
     var selectedAudioRoute = ""
     var audioRouteName = "等待声音设备"
+    var audioRouteMessage: String?
     var ownedCallID: String?
     var callStartedAt: Date?
     var statusFresh = false
@@ -121,15 +122,7 @@ final class AppModel {
             self.statusFresh = false
             Task { @MainActor in await self.endCall(reason: message) }
         }
-        audio.onInterrupted = { [weak self] in
-            let callID = self?.ownedCallID
-            let systemID = self?.systemCallUUID
-            Task { @MainActor in
-                guard let self, self.ownedCallID == callID, self.systemCallUUID == systemID,
-                      self.mediaConnected || self.ownedCallID != nil else { return }
-                await self.endCall(reason: "音频设备发生变化，本次通话已结束，请重新拨打。")
-            }
-        }
+        audio.onAudioStatusChanged = { [weak self] message in self?.audioRouteMessage = message }
         audio.onSpeakerChanged = { [weak self] value in self?.speakerEnabled = value }
         audio.onRoutesChanged = { [weak self] routes, selected, name in
             self?.audioRoutes = routes; self?.selectedAudioRoute = selected; self?.audioRouteName = name
@@ -1064,6 +1057,7 @@ final class AppModel {
         historyUploadTask?.cancel()
     }
     func systemAudioActivated() { audio.audioSessionActivated() }
+    func systemAudioDeactivated() { audio.audioSessionDeactivated() }
     func systemCallFinished(_ uuid: UUID, remoteID: String?, stopRemote: Bool) {
         guard systemCallUUID == nil || systemCallUUID == uuid else { return }
         let id = remoteID ?? ownedCallID
@@ -1255,7 +1249,12 @@ final class AppModel {
     func selectAudioRoute(_ id: String) {
         guard !callBusy, mediaConnected, ownedCallID != nil else { return }
         do { try audio.selectRoute(id) }
-        catch { notice = "声音设备切换失败，请确认蓝牙已连接后重试。" }
+        catch { audioRouteMessage = "声音设备切换失败，通话保留。请确认设备已连接，或点击重试声音。" }
+    }
+    func retryCallAudio() {
+        guard !callBusy, mediaConnected, ownedCallID != nil else { return }
+        do { try audio.retryAudio() }
+        catch { audioRouteMessage = error.localizedDescription }
     }
     private func releaseMedia() {
         if let ownedCallID { finishCallRecord(id: ownedCallID) }
