@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -91,10 +92,25 @@ type controller struct {
 	owned, ending                       bool
 	failures                            int
 	started                             time.Time
+	audioLost                           time.Time // owner's audio link dropped; call kept during reconnectGrace
 	published                           atomic.Pointer[phoneView]
 }
 
 var phone = controller{view: phoneView{State: "unavailable"}}
+
+// A phone switching networks briefly loses its audio WebSocket. Keep the real
+// call this long so the same client can reconnect instead of hanging up both sides.
+var reconnectGrace = 15 * time.Second
+
+// Safety limit against a stuck call, not a product limit. Default 4 hours;
+// VOICE_WEB_MAX_CALL_MINUTES overrides it (1–1440).
+func maxCallDuration() time.Duration {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("VOICE_WEB_MAX_CALL_MINUTES"))); err == nil && v >= 1 && v <= 1440 {
+		return time.Duration(v) * time.Minute
+	}
+	return 4 * time.Hour
+}
+
 var moduleRoute = func(action string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -145,6 +161,7 @@ func (p *controller) finish() {
 	p.ending = false
 	p.owner = ""
 	p.started = time.Time{}
+	p.audioLost = time.Time{}
 }
 func (p *controller) terminate(message string) {
 	p.stopMedia()
@@ -156,6 +173,7 @@ func (p *controller) terminate(message string) {
 		p.ending = false
 		p.owned = false
 		p.owner = ""
+		p.audioLost = time.Time{}
 	}
 	p.changed()
 }
@@ -211,10 +229,17 @@ func (p *controller) tick() {
 		return
 	}
 	if p.audioOwner != p.owner {
-		p.terminate("声音连接已断开")
-		return
+		if p.audioLost.IsZero() {
+			p.audioLost = time.Now()
+		}
+		if time.Since(p.audioLost) > reconnectGrace {
+			p.terminate("声音连接已断开")
+			return
+		}
+	} else {
+		p.audioLost = time.Time{}
 	}
-	if time.Since(p.started) > time.Hour || (p.view.State == "dialing" && time.Since(p.started) > 60*time.Second) {
+	if time.Since(p.started) > maxCallDuration() || (p.view.State == "dialing" && time.Since(p.started) > 60*time.Second) {
 		p.terminate("通话超时")
 		return
 	}
@@ -285,15 +310,27 @@ func currentCallInfo() recordingInfo {
 	defer phone.Unlock()
 	return recordingInfo{Run: phone.run, Peer: phone.peer, Direction: phone.direction}
 }
-func bindAudio(key string) { phone.Lock(); phone.audioOwner = key; phone.Unlock() }
+func bindAudio(key string) {
+	phone.Lock()
+	defer phone.Unlock()
+	phone.audioOwner = key
+	if phone.owner == key && !phone.audioLost.IsZero() {
+		log.Printf("声音连接已恢复: 中断=%.1fs", time.Since(phone.audioLost).Seconds())
+		phone.audioLost = time.Time{}
+	}
+}
+
+// Losing the owner's audio link starts the reconnect grace; tick() hangs up
+// only if the same client has not reconnected within reconnectGrace.
 func unbindAudio(key string) {
 	phone.Lock()
 	defer phone.Unlock()
 	if phone.audioOwner == key {
 		phone.audioOwner = ""
 	}
-	if phone.owned && phone.owner == key {
-		phone.terminate("声音连接已断开")
+	if phone.owned && phone.owner == key && phone.audioLost.IsZero() {
+		phone.audioLost = time.Now()
+		log.Printf("声音连接中断，等待客户端重连（最多 %.0fs）", reconnectGrace.Seconds())
 	}
 }
 func phoneAction(w http.ResponseWriter, r *http.Request) {

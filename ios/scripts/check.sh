@@ -26,3 +26,4 @@ xcrun swiftc -parse-as-library -module-cache-path .build/checks/module-cache Sui
 python3 scripts/version.py
 python3 scripts/speaker-switch-check.py
 python3 scripts/voice-audio-route-check.py
+python3 scripts/media-reconnect-check.py

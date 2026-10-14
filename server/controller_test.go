@@ -76,15 +76,113 @@ func TestControlFailureRetriesHangup(t *testing.T) {
 		t.Fatal("did not fail closed and retain retry")
 	}
 }
-func TestDisconnectedAudioEndsOwnedCall(t *testing.T) {
+func TestDisconnectedAudioEndsOwnedCallAfterGrace(t *testing.T) {
 	p, cmd, s := fakeController(t)
 	p.owned = true
 	p.owner = "x"
 	p.started = time.Now()
 	*s = "+CLCC: 1,0,0,0,0"
 	p.tick()
+	if !p.owned || strings.Contains(strings.Join(*cmd, ","), "ATH") {
+		t.Fatal("a brief audio loss must not hang up during the reconnect grace")
+	}
+	p.audioLost = time.Now().Add(-reconnectGrace - time.Second)
+	p.tick()
 	if p.owned || !strings.Contains(strings.Join(*cmd, ","), "ATH") {
-		t.Fatal("orphaned call")
+		t.Fatal("orphaned call after grace")
+	}
+}
+func TestSameClientReconnectKeepsCall(t *testing.T) {
+	_, cmd, s := fakeController(t)
+	defer func() {
+		phone.Lock()
+		phone.owned, phone.owner, phone.audioOwner, phone.audioLost = false, "", "", time.Time{}
+		phone.Unlock()
+	}()
+	phone.Lock()
+	phone.owned, phone.owner, phone.audioOwner, phone.started = true, "k", "k", time.Now()
+	phone.Unlock()
+	*s = "+CLCC: 1,0,0,0,0"
+	unbindAudio("k")
+	phone.Lock()
+	lost := !phone.audioLost.IsZero() && phone.owned
+	phone.Unlock()
+	if !lost {
+		t.Fatal("unbind must start the grace, not hang up")
+	}
+	bindAudio("k")
+	phone.Lock()
+	cleared := phone.audioLost.IsZero()
+	phone.tick()
+	owned := phone.owned
+	phone.Unlock()
+	if !cleared || !owned || strings.Contains(strings.Join(*cmd, ","), "ATH") {
+		t.Fatal("reconnected client lost the call")
+	}
+}
+func TestMaxCallDurationConfig(t *testing.T) {
+	t.Setenv("VOICE_WEB_MAX_CALL_MINUTES", "")
+	if maxCallDuration() != 4*time.Hour {
+		t.Fatal("default must be 4 hours")
+	}
+	t.Setenv("VOICE_WEB_MAX_CALL_MINUTES", "90")
+	if maxCallDuration() != 90*time.Minute {
+		t.Fatal("override")
+	}
+	for _, bad := range []string{"0", "-5", "abc", "100000"} {
+		t.Setenv("VOICE_WEB_MAX_CALL_MINUTES", bad)
+		if maxCallDuration() != 4*time.Hour {
+			t.Fatal("invalid value must fall back", bad)
+		}
+	}
+}
+func TestCallPastOneHourContinues(t *testing.T) {
+	p, cmd, s := fakeController(t)
+	t.Setenv("VOICE_WEB_MAX_CALL_MINUTES", "")
+	p.owned, p.owner, p.audioOwner = true, "x", "x"
+	p.started = time.Now().Add(-90 * time.Minute)
+	*s = "+CLCC: 1,0,0,0,0"
+	p.tick()
+	if !p.owned || strings.Contains(strings.Join(*cmd, ","), "ATH") {
+		t.Fatal("90-minute call must continue")
+	}
+	p.started = time.Now().Add(-4*time.Hour - time.Minute)
+	p.tick()
+	if p.owned {
+		t.Fatal("safety limit must still end a stuck call")
+	}
+}
+func TestStreamTakeoverAndSessionExtension(t *testing.T) {
+	lock <- struct{}{}
+	released := make(chan struct{})
+	streamMu.Lock()
+	streamHolder.key, streamHolder.cancel = "same", func() { go func() { <-lock; close(released) }() }
+	streamMu.Unlock()
+	defer func() { streamMu.Lock(); streamHolder.key, streamHolder.cancel = "", nil; streamMu.Unlock() }()
+	if acquireStream("other") {
+		t.Fatal("another session must not take over")
+	}
+	if !acquireStream("same") {
+		t.Fatal("same session must replace its stale stream")
+	}
+	<-released
+	<-lock
+	now := time.Now()
+	sessions.Store("ext", now.Add(time.Minute))
+	defer sessions.Delete("ext")
+	extendSession("ext", now)
+	if v, _ := sessions.Load("ext"); v.(time.Time).Before(now.Add(9 * time.Minute)) {
+		t.Fatal("live stream must extend its session")
+	}
+	sessions.Store("far", now.Add(time.Hour))
+	defer sessions.Delete("far")
+	extendSession("far", now)
+	if v, _ := sessions.Load("far"); !v.(time.Time).Equal(now.Add(time.Hour)) {
+		t.Fatal("must not shorten a longer session")
+	}
+	extendSession("missing", now)
+	if _, ok := sessions.Load("missing"); ok {
+		t.Fatal("revoked or unknown session must not be recreated")
 	}
 }
 func TestStaleCallCannotBeAnswered(t *testing.T) {

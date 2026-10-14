@@ -24,6 +24,45 @@ var appContext = context.Background()
 var sessions sync.Map
 var lock = make(chan struct{}, 1)
 
+// The audio stream holder. A reconnect from the same session replaces a stale
+// link (e.g. the old network path) instead of being refused with 409.
+var streamMu sync.Mutex
+var streamHolder struct {
+	key    string
+	cancel context.CancelFunc
+}
+
+func acquireStream(key string) bool {
+	select {
+	case lock <- struct{}{}:
+		return true
+	default:
+	}
+	streamMu.Lock()
+	same, cancel := streamHolder.key == key, streamHolder.cancel
+	streamMu.Unlock()
+	if !same {
+		return false
+	}
+	if cancel != nil {
+		cancel()
+	}
+	select {
+	case lock <- struct{}{}:
+		return true
+	case <-time.After(3 * time.Second):
+		return false
+	}
+}
+
+// Keep a session valid while its audio stream is live so long calls are not
+// cut at the session's original expiry.
+func extendSession(key string, now time.Time) {
+	if v, ok := sessions.Load(key); ok && v.(time.Time).Sub(now) < 10*time.Minute {
+		sessions.Store(key, now.Add(10*time.Minute))
+	}
+}
+
 // hostPattern 只允许主机名加可选端口；字符类里不能出现未转义的 `.`，否则会构成
 // `.` 到 `-` 的字符区间，把 `/` 等字符一并放行。
 var hostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$`)
@@ -116,13 +155,11 @@ func stream(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
 		return
 	}
-	select {
-	case lock <- struct{}{}:
-		defer func() { <-lock }()
-	default:
+	if !acquireStream(requestKey(r)) {
 		w.WriteHeader(409)
 		return
 	}
+	defer func() { <-lock }()
 	u := websocket.Upgrader{CheckOrigin: allowedOrigin, Subprotocols: []string{"sxh.audio-diagnostics.v2", "sxh.audio-diagnostics.v1"}}
 	c, e := u.Upgrade(w, r, nil)
 	if e != nil {
@@ -136,12 +173,21 @@ func stream(w http.ResponseWriter, r *http.Request) {
 	}()
 	defer c.Close()
 	key := requestKey(r)
-	expiry, ok := sessions.Load(key)
-	if !ok {
+	if key == "" {
 		return
 	}
-	ctx, cancel := context.WithDeadline(r.Context(), expiry.(time.Time))
+	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	streamMu.Lock()
+	streamHolder.key, streamHolder.cancel = key, cancel
+	streamMu.Unlock()
+	defer func() {
+		streamMu.Lock()
+		if streamHolder.key == key {
+			streamHolder.key, streamHolder.cancel = "", nil
+		}
+		streamMu.Unlock()
+	}()
 	stopWatch := context.AfterFunc(appContext, cancel)
 	defer stopWatch()
 	bindAudio(key)
@@ -209,6 +255,7 @@ func stream(w http.ResponseWriter, r *http.Request) {
 			log.Printf("音频通道读结束: 会话失效")
 			break
 		}
+		extendSession(key, time.Now())
 		if kind == websocket.TextMessage {
 			if string(b) != "ping" {
 				stats.acceptClient(b, time.Now())

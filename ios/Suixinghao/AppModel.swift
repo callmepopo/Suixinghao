@@ -32,6 +32,7 @@ final class AppModel {
     @ObservationIgnored private var recoveryTask: Task<Void, Never>?
     @ObservationIgnored private var diagnosticsTask: Task<Void, Never>?
     @ObservationIgnored private var hangupTask: Task<Void, Never>?
+    @ObservationIgnored private var mediaReconnect: Task<Void, Never>?
     private var recoveryGeneration = UUID()
     private var networkSignature: String?
     private var networkAvailable = true
@@ -120,6 +121,9 @@ final class AppModel {
         transport.onFailure = { [weak self] message in
             guard let self else { return }
             self.statusFresh = false
+            // A network switch drops the socket; the server keeps the call for a short
+            // grace, so reconnect with the same session before giving up.
+            if self.mediaConnected, self.ownedCallID != nil { self.reconnectMedia(after: message); return }
             Task { @MainActor in await self.endCall(reason: message) }
         }
         // Sound device changes keep the call; failures only show a message.
@@ -1253,7 +1257,35 @@ final class AppModel {
         guard !callBusy, mediaConnected, ownedCallID != nil else { return }
         audio.retryAudio()
     }
+    /// Slightly shorter than the server's 15 s reconnect grace.
+    static let mediaReconnectWindow: TimeInterval = 14
+    /// Reconnect the audio socket within the server's reconnect grace (15 s). The audio
+    /// engine, CallKit call, mute and capture keep running; only the socket is replaced.
+    private func reconnectMedia(after message: String) {
+        guard mediaReconnect == nil, let call = ownedCallID else { return }
+        audioRouteMessage = "网络切换中，正在恢复通话声音…"
+        mediaReconnect = Task { @MainActor [weak self] in
+            let deadline = Date().addingTimeInterval(Self.mediaReconnectWindow)
+            while let self, Date() < deadline, !Task.isCancelled {
+                guard self.ownedCallID == call, self.mediaConnected, let base = self.base else { self.mediaReconnect = nil; return }
+                do {
+                    try await self.transport.connect(base: base, token: self.voiceToken)
+                    guard self.ownedCallID == call, !Task.isCancelled else { self.transport.close(); self.mediaReconnect = nil; return }
+                    self.transport.startSending(self.audio.outgoing)
+                    self.audioRouteMessage = nil
+                    self.mediaReconnect = nil
+                    return
+                } catch {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.mediaReconnect = nil
+            if self.ownedCallID == call { await self.endCall(reason: message) }
+        }
+    }
     private func releaseMedia() {
+        mediaReconnect?.cancel(); mediaReconnect = nil
         if let ownedCallID { finishCallRecord(id: ownedCallID) }
         dialingStage = ""
         transport.close(); audio.stop()
