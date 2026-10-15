@@ -46,11 +46,7 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
             ws.resume()
         }
         // A pong proves the server has entered its read loop and bound ownership.
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            ws.sendPing { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-            }
-        }
+        try await awaitPong { handler in ws.sendPing(pongReceiveHandler: handler) }
         guard socket === ws else { throw CancellationError() }
         ready = true
         timeout?.cancel(); timeout = nil
@@ -137,5 +133,25 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
     }
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+/// Waits for one pong. URLSession may call a ping's handler more than once while
+/// the network changes (an error, then again as the task is cancelled); only the
+/// first call may resume, a second resume would trap the App mid-call.
+func awaitPong(_ sendPing: (@escaping @Sendable (Error?) -> Void) -> Void) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let once = ResumeOnce(continuation)
+        sendPing { error in once.resume(error) }
+    }
+}
+
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    init(_ continuation: CheckedContinuation<Void, Error>) { self.continuation = continuation }
+    func resume(_ error: Error?) {
+        lock.lock(); let pending = continuation; continuation = nil; lock.unlock()
+        if let error { pending?.resume(throwing: error) } else { pending?.resume() }
     }
 }

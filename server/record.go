@@ -48,7 +48,8 @@ func recordingName(t time.Time, peer, direction string) string {
 	return t.Format("20060102-150405") + "-" + strings.TrimPrefix(peer, "+") + "-" + direction
 }
 
-// uniqueName 在目录内挑选未占用的名字，同一秒内的多通电话自动追加 -2、-3。
+// uniqueName 在目录内挑选未占用的名字，同一秒内的多通电话或同一通电话
+// 切网重连后的续录自动追加 -2、-3。按实际写出的三个文件查重。
 func uniqueName(dir, base string, taken map[string]bool) string {
 	for i := 1; ; i++ {
 		name := base
@@ -58,7 +59,13 @@ func uniqueName(dir, base string, taken map[string]bool) string {
 		if taken[name] {
 			continue
 		}
-		if _, e := os.Stat(filepath.Join(dir, name+".wav")); e == nil {
+		used := false
+		for _, suffix := range []string{".wav", "-拨打.wav", "-接听.wav", "-合并.wav"} {
+			if _, e := os.Stat(filepath.Join(dir, name+suffix)); e == nil {
+				used = true
+			}
+		}
+		if used {
 			continue
 		}
 		taken[name] = true

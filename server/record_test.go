@@ -158,3 +158,31 @@ func TestSafeRunAcceptsCurrentNaming(t *testing.T) {
 		}
 	}
 }
+
+// 10-15 11:23实测：通话中切网，声音连接重连后为同一通电话再次创建录音，
+// 旧查重只看“<名>.wav”而实际文件是“<名>-拨打.wav”，同名创建失败，切网后的录音全部丢失。
+func TestRecordingContinuesAfterMediaReconnect(t *testing.T) {
+	oldRoot, oldMax := recordRoot, recordMaxByte
+	defer func() { recordRoot, recordMaxByte = oldRoot, oldMax }()
+	recordRoot = t.TempDir()
+	recordMaxByte = 1 << 20
+	info := recordingInfo{Run: recordingName(time.Now(), "8613800000000", "拨打"), Peer: "8613800000000", Direction: "拨打"}
+	first, err := newPair(recordRoot, info)
+	if err != nil {
+		t.Fatalf("first segment: %v", err)
+	}
+	first.writeUp(int16Bytes(make([]int16, 160)))
+	first.close()
+	second, err := newPair(recordRoot, info)
+	if err != nil {
+		t.Fatalf("segment after reconnect not recorded: %v", err)
+	}
+	second.writeUp(int16Bytes(make([]int16, 160)))
+	second.close()
+	dir := filepath.Join(recordRoot, time.Now().Format("20060102"))
+	for _, f := range []string{info.Run + "-拨打.wav", info.Run + "-2-拨打.wav", info.Run + "-2-合并.wav"} {
+		if _, e := os.Stat(filepath.Join(dir, f)); e != nil {
+			t.Fatalf("missing %s: %v", f, e)
+		}
+	}
+}
