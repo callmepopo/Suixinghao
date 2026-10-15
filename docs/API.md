@@ -178,6 +178,8 @@ v2在audio_stats中增加events（每窗口最多16条）与level。事件只允
 
 服务“音频诊断”每5秒另记：up_level（写入模块的本机声音音量）、down_level（模块读出的对方声音音量，含削顶数）、receive_gaps（本窗口内≥60/150/300ms的到达间隔计数）、signal（通话中模块信号：开始约3秒后每10秒只读查询一次AT+QCSQ，不支持时改用AT+CSQ；latest含rat、rssi、rsrp、sinr、rsrq或csq，另有本通最差rsrp/sinr与查询失败数）。信号查询经现有控制循环串行执行，不新开AT接口、不写配置。
 
+服务0.1.9起“音频诊断”另含up_jitter（写入模块的自适应缓冲，累计）：depth_frames（当前排队帧）、depth_peak_frames、target_frames（当前目标，3–8帧即60–160ms）、concealed_frames（无手机声音时补位的帧：首帧淡出其后静音，含接通前等待）、trimmed_frames（追赶延迟时舍弃的帧，优先静音帧）、overflow_frames（排队超过300ms丢弃的最旧帧）、rebuffers（断流后重新攒缓冲次数）。up_written与up_level只统计手机真实声音；recorded_up_ms含补位帧，录音时间轴与实际播放一致。
+
 ### 0.1.3 历史短信删除（App Key）
 
 - DELETE `/app/sms/messages/{id}`：正整数记录ID，成功200，透传上游删除结果；只允许该固定路径。

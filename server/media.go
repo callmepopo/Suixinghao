@@ -78,8 +78,13 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 	}()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	cap := exec.CommandContext(ctx, "arecord", "-q", "-D", envOrDefault("VOICE_WEB_AUDIO_DEVICE", "hw:CARD=Baiwang,DEV=0"), "-t", "raw", "-f", "S16_LE", "-r", "8000", "-c", "1")
-	play := exec.CommandContext(ctx, "aplay", "-q", "-D", envOrDefault("VOICE_WEB_AUDIO_DEVICE", "hw:CARD=Baiwang,DEV=0"), "-t", "raw", "-f", "S16_LE", "-r", "8000", "-c", "1")
+	// ALSA defaults were a 500 ms playback buffer that only starts when full and
+	// 125 ms capture periods. Use 20 ms periods: playback keeps 80 ms in the
+	// device (starting at 40 ms) and the uplink jitter buffer absorbs the network;
+	// capture keeps 500 ms of headroom, which adds no delay.
+	device := envOrDefault("VOICE_WEB_AUDIO_DEVICE", "hw:CARD=Baiwang,DEV=0")
+	cap := exec.CommandContext(ctx, "arecord", "-q", "-D", device, "-t", "raw", "-f", "S16_LE", "-r", "8000", "-c", "1", "--period-time=20000", "--buffer-time=500000")
+	play := exec.CommandContext(ctx, "aplay", "-q", "-D", device, "-t", "raw", "-f", "S16_LE", "-r", "8000", "-c", "1", "--period-time=20000", "--buffer-time=80000", "--start-delay=40000")
 	cap.WaitDelay = 2 * time.Second
 	play.WaitDelay = 2 * time.Second
 	out, e := cap.StdoutPipe()
@@ -131,32 +136,48 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 			}
 		}
 	}()
+	jitter := newUplinkJitter()
+	stats.attachJitter(jitter)
 	go func() {
-		defer close(up)
-		defer cancel()
-
-		var total int
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case b := <-mic:
+				jitter.push(b)
+			}
+		}
+	}()
+	go func() {
+		defer close(up)
+		defer cancel()
 
-				if !uplinkAllowed(phone.snapshot(), run, activeRun()) {
-					b = make([]byte, 320)
-				}
-				active := uplinkAllowed(phone.snapshot(), run, activeRun())
-				writeRecording(true, b)
-				writeStarted := time.Now()
-				if _, e := in.Write(b); e != nil {
-					log.Printf("上行结束: aplay 写入 %d 字节后退出: %v", total, e)
-					return
-				}
-				stats.moduleWrite(active, time.Since(writeStarted))
-				if active {
-					stats.level(true, b)
-				}
-				total += len(b)
+		var total int
+		started, frames := time.Now(), time.Duration(0)
+		for ctx.Err() == nil {
+			// The blocking write into the small device buffer paces this loop; the
+			// guard only stops a sink that never blocks from spinning ahead.
+			if ahead := frames*20*time.Millisecond - time.Since(started); ahead > 120*time.Millisecond {
+				time.Sleep(ahead - 100*time.Millisecond)
+			}
+			frames++
+			b, fromPhone := jitter.next()
+			active := uplinkAllowed(phone.snapshot(), run, activeRun())
+			if !active {
+				b = make([]byte, 320)
+			}
+			writeRecording(true, b)
+			writeStarted := time.Now()
+			if _, e := in.Write(b); e != nil {
+				log.Printf("上行结束: aplay 写入 %d 字节后退出: %v", total, e)
+				return
+			}
+			stats.moduleWrite(active, time.Since(writeStarted))
+			if active && fromPhone {
+				stats.level(true, b)
+			}
+			total += len(b)
+			if fromPhone {
 				stats.output(true)
 			}
 		}

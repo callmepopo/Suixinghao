@@ -123,7 +123,10 @@ func TestEarlyMediaPipesAndRecordingBoundary(t *testing.T) {
 	phone.view.State = "active"
 	phone.publish()
 	phone.Unlock()
-	mic <- bytes.Repeat([]byte{42}, 320)
+	// The uplink jitter buffer starts playout once its initial target is queued.
+	for i := 0; i < jitterMinTarget; i++ {
+		mic <- bytes.Repeat([]byte{42}, 320)
+	}
 	wait(func() bool { b, _ := os.ReadFile(playFile); return bytes.Contains(b, bytes.Repeat([]byte{42}, 320)) })
 	wait(func() bool {
 		files, _ := filepath.Glob(filepath.Join(recordRoot, "*", "*.wav"))

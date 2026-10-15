@@ -31,6 +31,7 @@ type audioStats struct {
 	// Per-summary window: what was written to the module (up) and read from it (down).
 	upLevel, downLevel    pcmLevel
 	gap60, gap150, gap300 uint64
+	jitter                *uplinkJitter
 }
 
 // pcmLevel aggregates numbers only; samples are never kept.
@@ -154,7 +155,7 @@ func (s *audioStats) arrivalAt(run string, dropped bool, depth int, now time.Tim
 	}
 }
 
-// Called after writing to the existing module pipe; it never changes PCM or pacing.
+// Called after each write into the module pipe; it never changes PCM or pacing.
 func (s *audioStats) moduleWrite(active bool, duration time.Duration) {
 	s.Lock()
 	defer s.Unlock()
@@ -180,7 +181,8 @@ func (s *audioStats) level(up bool, b []byte) {
 		s.downLevel.add(b)
 	}
 }
-func (s *audioStats) discardStartup() { s.Lock(); s.startupDiscarded++; s.Unlock() }
+func (s *audioStats) attachJitter(j *uplinkJitter) { s.Lock(); s.jitter = j; s.Unlock() }
+func (s *audioStats) discardStartup()              { s.Lock(); s.startupDiscarded++; s.Unlock() }
 func (s *audioStats) output(up bool) {
 	s.Lock()
 	defer s.Unlock()
@@ -213,6 +215,9 @@ func (s *audioStats) summary(final bool) {
 	v["down_level"] = s.downLevel.view()
 	s.upLevel, s.downLevel = pcmLevel{}, pcmLevel{}
 	v["signal"] = callSignalSummary()
+	if s.jitter != nil {
+		v["up_jitter"] = s.jitter.view()
+	}
 	for name, at := range map[string]time.Time{"underrun_first_at": s.firstUnderrun, "underrun_last_at": s.lastUnderrun, "overrun_first_at": s.firstOverrun, "overrun_last_at": s.lastOverrun} {
 		if !at.IsZero() {
 			v[name] = at.UTC().Format(time.RFC3339Nano)

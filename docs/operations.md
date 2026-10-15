@@ -46,6 +46,8 @@
 - 对方听不清／卡（上行）：phone.level与服务up_level看本机音量；capture_drop/capture_underfill看手机采集；receive_gaps看网络到达；module_underrun看模块播放；signal的rsrp/sinr偏低时优先怀疑模块到运营商一段。context.route_in区分听筒/扬声器/蓝牙麦克风。
 - 本机听不清／卡（下行）：服务down_level的clipped_samples看模块输出是否破音；手机down_gap/down_underruns看网络与播放断流；down_overflow/trimmed为积压舍弃。
 - context.net与net_change对应Wi‑Fi/蜂窝切换时刻。
+- 服务0.1.9起模块声卡参数固定为20ms周期：发声缓冲80ms（攒40ms起播），收声周期20ms、余量500ms；此前ALSA默认发声缓冲500ms且攒满才播放（对方单程多约0.5秒），收声每125ms交一批。手机声音先进自适应缓冲（60–160ms，见[API](API.md)的up_jitter），无手机声音时淡出补静音，不再让模块断流；因此underrun应接近0，若出现优先查NAS负载。rebuffers／concealed_frames升高对应手机网络停顿，trimmed_frames升高对应停顿后成批补发。
+- 标准测试与基线见[发布说明](releasing.md#通话质量标准测试2026-10-15起)。
 
 ## 0.1.3 主动断开与短信删除
 
