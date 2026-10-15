@@ -45,11 +45,8 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
             }
             ws.resume()
         }
-        // A pong proves the server has entered its read loop and bound ownership.
-        try await awaitPong { handler in ws.sendPing(pongReceiveHandler: handler) }
-        guard socket === ws else { throw CancellationError() }
-        ready = true
-        timeout?.cancel(); timeout = nil
+        // Read before pinging: iOS hands the pong over only after earlier unread
+        // messages, and on a reconnect mid-call the server may already be pushing audio.
         receiveTask = Task { [weak self] in
             do {
                 while !Task.isCancelled {
@@ -72,6 +69,11 @@ final class VoiceTransport: NSObject, URLSessionWebSocketDelegate {
                 self.failed("声音连接已断开，本次通话将结束。")
             }
         }
+        // A pong proves the server has entered its read loop and bound ownership.
+        try await awaitPong { handler in ws.sendPing(pongReceiveHandler: handler) }
+        guard socket === ws else { throw CancellationError() }
+        ready = true
+        timeout?.cancel(); timeout = nil
     }
     func startSending(_ frames: PCMFrames) {
         guard let ws = socket, ready else { return }

@@ -26,7 +26,7 @@ xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/IncomingRe
 xcrun swiftc -parse-as-library -module-cache-path .build/checks/module-cache Suixinghao/IncomingReminderState.swift Suixinghao/IncomingCallReminder.swift scripts/reminder-race-check.swift -o .build/checks/reminder-race-check
 .build/checks/reminder-race-check
 xcrun swiftc -parse-as-library -D DEBUG -module-cache-path .build/checks/module-cache Suixinghao/API.swift Suixinghao/ConnectionHistory.swift Suixinghao/VoiceSendLoop.swift Suixinghao/DownlinkJitter.swift Suixinghao/VoiceTransport.swift Suixinghao/PCMFrames.swift scripts/pong-check.swift -o .build/checks/pong-check
-.build/checks/pong-check
+.build/checks/pong-check scripts/push-first-server.py --local-voice-check
 python3 scripts/version.py
 python3 scripts/speaker-switch-check.py
 python3 scripts/voice-audio-route-check.py

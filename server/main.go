@@ -193,6 +193,8 @@ func stream(w http.ResponseWriter, r *http.Request) {
 	bindAudio(key)
 	defer unbindAudio(key)
 	// Optional capability is in the handshake header: no extra pre-pong data frame.
+	// The gate keeps it that way on a reconnect, when the call is already active.
+	gate := newClientGate(c)
 	stats := &audioStats{}
 	mic := make(chan []byte, 8)
 	done := make(chan struct{})
@@ -200,6 +202,9 @@ func stream(w http.ResponseWriter, r *http.Request) {
 		defer close(done)
 		defer cancel()
 		defer c.Close()
+		if !gate.wait(ctx, 3*time.Second) {
+			return
+		}
 		last := ""
 		for ctx.Err() == nil {
 			run := activeRun()
@@ -251,6 +256,7 @@ func stream(w http.ResponseWriter, r *http.Request) {
 			log.Printf("音频通道读结束: %v", e)
 			break
 		}
+		gate.open()
 		if requestKey(r) == "" {
 			log.Printf("音频通道读结束: 会话失效")
 			break
