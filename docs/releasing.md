@@ -132,3 +132,7 @@ App0.1.12/build47撤回build41–46路由补偿，以0.1.9音频代码为基线�
 build45收到明确真机失败，不再以既有模拟通过宣称能用。build46使用提取的真实序列复现“提前成功、新引擎将Speaker切回HFP”，先验证旧源码失败，再验证原I/O恢复；手机专用会话及恢复蓝牙分别核验。45随后出现建立通话约15秒超时，未见本次音频激活记录，根因尚未确定。开发设备与既有安装入口先回退历史0.1.9/build39，保留原产物来源；build46只做本地候选，不安装或分发。候选须独立验证连续拨号、实际听筒/扬声器/AirPods双向声音、锁屏及持续通话质量后再交付，不能以回退安装通过记为拨号恢复。
 
 2026-10-14追加：15Pro开发build59（切换设备重建）由用户确认先用，并授权推送SE3内部测试。同一代码以`--build-only`得到干净来源619d213的Production build60，本机无分发证书，沿用ASC API Key云端签名导出；签名与权限（aps production、calling-app、无get-task-allow、后台audio/voip）核验，altool上传、Apple VALID，仅关联SE3内部组。未合main、未推GitHub、未提交外部审核或App Store。
+
+## 2026-10-15 第3步：build63外部审核
+
+15Pro开发build62与SE3内部build63（同代码，来源5c7b3ab）切网通过后，按用户授权develop快进合入main并同步GitHub，候选标签app-v0.1.13-rc-build63。外部组只保留最新候选：build63提交Beta审核；此前待审的build53因App Store Connect API不支持撤回审核，改为移出外部组（批准后也不分发），未使其失效。带服务0.1.11安装包的GitHub Release在build63外部审核批准后发布；网友NAS需升级服务0.1.11才有完整切网修复。
