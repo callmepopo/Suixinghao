@@ -136,3 +136,7 @@ build45收到明确真机失败，不再以既有模拟通过宣称能用。buil
 ## 2026-10-15 第3步：build63外部审核
 
 15Pro开发build62与SE3内部build63（同代码，来源5c7b3ab）切网通过后，按用户授权develop快进合入main并同步GitHub，候选标签app-v0.1.13-rc-build63。外部组只保留最新候选：build63提交Beta审核；此前待审的build53因App Store Connect API不支持撤回审核，改为移出外部组（批准后也不分发），未使其失效。带服务0.1.11安装包的GitHub Release在build63外部审核批准后发布；网友NAS需升级服务0.1.11才有完整切网修复。
+
+## 2026-10-16 build63外部批准与GitHub Release
+
+build63外部Beta审核通过，Apple读回外部IN_BETA_TESTING；外部组另开公开链接（上限50人）。GitHub prerelease app-v0.1.13指向App build63来源5c7b3ab，附服务0.1.11/build12安装包（来源68dec03，二进制与维护者NAS运行版本SHA-256一致，未重建；服务清单channel为testing）、两份清单及SHA256SUMS。App Store 0.1.8仍为WAITING_FOR_REVIEW。
