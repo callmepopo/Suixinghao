@@ -61,6 +61,8 @@
 
 手机测试通过后，在没有未提交修改时将 develop 合入 main，固定提交并制作候选标签。App功能／修复更新使用 `python3 ios/scripts/version.py --module ios --next`；服务端使用 `--module server --next`，各自递增补丁版本。App同产品版本的新构建使用 `--module ios --build-only`，只递增内部构建号。App的权威配置为根Version.xcconfig，服务为server/Version.xcconfig；纯文档不升号。
 
+候选及发布标签按组件分别制作，指向该产物的干净构建来源：App为`app-v<版本>[-rc-build<构建号>]`，服务端为`server-v<版本>[-rc-build<构建号>]`。服务端标签自服务0.1.11之后的下一次服务端发版开始；此前服务版本不补打标签，仍以发布说明和来源记录对应提交。
+
 ## 来源证据
 
 `scripts/source-metadata.py` 从实际 Git HEAD 和工作区状态读取来源。未提交显示 uncommitted；脏源码显示 SHA-dirty 并不提供误导的源码链接。只有干净提交且 origin 为 GitHub 仓库时，才生成精确提交链接。此字段是可检查的构建记录，不是源码等价的独立密码学证明。
