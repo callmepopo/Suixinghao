@@ -4,9 +4,9 @@
 
 将家里的蜂窝通信模块接入自建服务，在 iPhone 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-> **当前测试版本：App 0.1.9/build40，服务端 0.1.5/build6。** 新增自动开通推送、签发台账、设置页版本和连接历史优化。15Pro开发build39与SE3 TestFlight build40已获维护者整体测试确认；自动模式绑定仍需网友环境独立验证。2026-10-13：build40已提交外部Beta审核，状态WAITING_FOR_BETA_REVIEW，批准后可供既有网友组安装。GitHub标记为测试发布，旧0.1.8/build37保留；本轮不提交App Store。
+> **当前公开测试版本：App 0.1.13/build63，服务端 0.1.11/build12。** TestFlight外部测试已开放；配套服务支持通话切网重连、声音设备切换及延迟优化。GitHub以prerelease提供，正式商店发布另行处理。
 
-本地开发候选App0.1.11修正0.1.10在AirPods切换时误挂断的处理，保留声音设备选择与设置GitHub入口；AirPods/锁屏/车机待复测，尚未替换公开0.1.9测试发布。
+服务端0.1.12/build13开发候选补充中继地址缺失提示，并自动修复旧版首次失败申请留下的空地址状态；尚未替换公开0.1.11服务包。
 
 [自动推送：前提与开通步骤](docs/automatic-push.md) · [部署指南](deploy/unraid/README.md) · [iOS 客户端](ios/README.md) · [接口规范](docs/API.md) · [已知限制](docs/limitations.md) · [问题反馈](https://github.com/callmepopo/Suixinghao/issues)
 
@@ -78,4 +78,4 @@ App 不内置个人服务地址或 Key，Key 保存在本机钥匙串；服务�
 贡献方式见 [CONTRIBUTING](CONTRIBUTING.md)，安全反馈见 [SECURITY](SECURITY.md)，变更见 [CHANGELOG](CHANGELOG.md)。提交问题时仅使用合成数据，删除号码、短信、设备标识和凭据。
 
 
-测试版本App0.1.9／服务0.1.5增加官方推送自动开通：用户自行部署兼容NAS及HTTPS入口，在NAS管理页申请、App设置页确认，服务器自动领取／续期，无需用户VPS或开发者账号。发布者必须先启用App Attest核验；旧手工凭据仍兼容。签发台账、身份数据和验证层级见[推送中继](docs/push-relay.md)。维护者两机整体测试已确认，网友自建环境的自动绑定仍待验证；GitHub以prerelease提供，正式商店发布另行处理。
+官方推送自动开通由App0.1.9／服务0.1.5起提供：用户自行部署兼容NAS及HTTPS入口，先配置发布者提供的完整中继URL，再在NAS管理页申请、App设置页确认，服务器自动领取／续期，无需用户VPS或开发者账号。公开配置中的`relay.example.org`只是占位地址。发布者必须启用App Attest核验；旧手工凭据仍兼容。签发台账、身份数据和验证层级见[推送中继](docs/push-relay.md)。维护者及首个网友自建NAS自动绑定均已取得授权记录；真实锁屏送达仍按每套环境独立验收。

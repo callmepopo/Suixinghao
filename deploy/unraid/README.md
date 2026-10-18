@@ -73,5 +73,7 @@
 
 发布者使用独立中继进程和私有Apple凭据；用户电话服务只配置独立后端授权，不持有发布者私钥。部署及验收见 [推送中继](../../docs/push-relay.md)。独立中继候选实例已部署，Apple实发和真机验收仍待完成，不改变既有电话服务或硬件状态。
 
+使用官方TestFlight／App Store版本前，先从发布者的测试通知取得对应Production完整中继URL，写入私有`service.env`的`VOICE_WEB_PUSH_RELAY_URL_PRODUCTION`，并将`VOICE_WEB_PUSH_RELAY_KEY_FILE_PRODUCTION`留空后重启服务。公开示例中的`relay.example.org`仅用于说明格式，不能连接实际服务；仓库不公开发布者的运行域名。未配置地址时，0.1.12起管理页会直接提示先配置，不再创建空地址实例；旧版本曾留下的空`endpoint`会在补齐配置并重启后保留原实例身份自动修复。
+
 
 用户首次开通的前提、步骤与既有手工授权迁移见[自动推送说明](../../docs/automatic-push.md)；不能只安装App就为任意服务器领取授权。

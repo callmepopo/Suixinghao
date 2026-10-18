@@ -195,5 +195,5 @@ v2在audio_stats中增加events（每窗口最多16条）与level。事件只允
 - `POST`同App路径：仅 `action=confirm`，含binding_id和proof（key_id、object为Base64，assertion为布尔值）。App Key必须有效，绑定必须由NAS管理员预先申请且未过期。
 - `GET /voice-test/push-setup?environment=...`：仅网页管理员会话查询；App电话会话不得管理。
 - `POST`管理员路径：`{"action":"begin","name":"登记昵称"}`申请，或 `{"action":"unbind"}`解除自动授权。已有手工路径显示manual，申请返回409，不隐式迁移。
-- 状态：not_enabled／pending／binding_expired／authorized／expired／revoked／manual。authorized仅表示NAS已取得授权，手机推送登记和真实送达须分别验收。
+- 状态：relay_not_configured／not_enabled／pending／binding_expired／authorized／expired／revoked／manual。relay_not_configured表示所选环境尚未配置完整中继URL；此时begin返回409且不创建实例状态。0.1.12起，补齐配置并重启后会保留既有实例身份并自动修复旧版保存的空endpoint。authorized仅表示NAS已取得授权，手机推送登记和真实送达须分别验收。
 - 中继 `POST /push-relay/v1/bind|confirm|claim|renew|unbind` 使用签名NAS信封，不使用手机App Key；confirm另含App Attest证明。严格JSON、最大32KiB、签名时间窗口60秒、nonce不可重放。401签名无效；403证明失败或撤销；409重放／冲突；410请求过期；429限额；503未启用或存储不可用。细节见[中继说明](push-relay.md)。

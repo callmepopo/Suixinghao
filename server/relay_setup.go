@@ -78,6 +78,8 @@ func relaySetupState(s nasRelayState) relaySetupView {
 		if time.Now().After(s.Expires) {
 			v.State = "expired"
 		}
+	} else if strings.TrimSpace(s.Endpoint) == "" {
+		v.State = "relay_not_configured"
 	} else if s.Binding != nil {
 		v.State = "pending"
 		v.BindingID = s.Binding.ID
@@ -181,12 +183,25 @@ func nasPushSetup(w http.ResponseWriter, r *http.Request) {
 	nasRelayMu.Lock()
 	defer nasRelayMu.Unlock()
 	s, e := loadNASRelay(environment)
+	loaded := e == nil
 	if e != nil && !os.IsNotExist(e) {
 		w.WriteHeader(503)
 		return
 	}
 	if os.IsNotExist(e) {
 		s = nasRelayState{Environment: environment, Endpoint: relayEndpoint(environment)}
+	}
+	// Early releases persisted an empty endpoint when an administrator clicked
+	// begin before configuring the relay. Preserve that instance identity and
+	// repair only the missing field after configuration is added and restarted.
+	if loaded && strings.TrimSpace(s.Endpoint) == "" {
+		if endpoint := strings.TrimSpace(relayEndpoint(environment)); endpoint != "" {
+			s.Endpoint = endpoint
+			if saveNASRelay(s) != nil {
+				w.WriteHeader(503)
+				return
+			}
+		}
 	}
 	write := func() {
 		w.Header().Set("Content-Type", "application/json")
@@ -229,6 +244,10 @@ func nasPushSetup(w http.ResponseWriter, r *http.Request) {
 	switch in.Action {
 	case "begin":
 		if manualRelayConfigured(environment) {
+			w.WriteHeader(409)
+			return
+		}
+		if strings.TrimSpace(s.Endpoint) == "" {
 			w.WriteHeader(409)
 			return
 		}

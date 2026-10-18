@@ -245,3 +245,65 @@ func TestNASAdministrationAndPrivateClaim(t *testing.T) {
 		t.Fatal("unsafe NAS file")
 	}
 }
+
+func TestNASMissingRelayEndpointAndLegacyStateRecovery(t *testing.T) {
+	p, _ := enrollmentFixture(t)
+	for _, suffix := range []string{"", "_PRODUCTION"} {
+		t.Setenv("VOICE_WEB_PUSH_RELAY_URL"+suffix, "")
+		t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix, "")
+	}
+	admin := strings.Repeat("b", 64)
+	sessions.Store(admin, time.Now().Add(time.Minute))
+	defer sessions.Delete(admin)
+	call := func(method, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "https://nas.example.org/voice-test/push-setup?environment=production", strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+admin)
+		w := httptest.NewRecorder()
+		nasPushSetup(w, r)
+		return w
+	}
+
+	w := call("GET", "")
+	var view relaySetupView
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &view) != nil || view.State != "relay_not_configured" {
+		t.Fatalf("missing relay endpoint state: code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w = call("POST", `{"action":"begin","name":"synthetic"}`); w.Code != 409 {
+		t.Fatalf("unconfigured begin = %d", w.Code)
+	}
+	if _, err := os.Stat(autoRelayPath("production")); !os.IsNotExist(err) {
+		t.Fatal("unconfigured begin persisted an empty instance")
+	}
+
+	seed := make([]byte, 32)
+	if _, err := rand.Read(seed); err != nil {
+		t.Fatal(err)
+	}
+	legacy := nasRelayState{Seed: base64.StdEncoding.EncodeToString(seed), Name: "synthetic", Environment: "production"}
+	if err := saveNASRelay(legacy); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(p)
+	defer server.Close()
+	old := relayHTTPClient
+	relayHTTPClient = server.Client()
+	t.Cleanup(func() { relayHTTPClient = old })
+	endpoint := server.URL + "/push-relay/v1/push"
+	t.Setenv("VOICE_WEB_PUSH_RELAY_URL_PRODUCTION", endpoint)
+
+	w = call("GET", "")
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &view) != nil || view.State != "not_enabled" {
+		t.Fatalf("recovered relay state: code=%d body=%s", w.Code, w.Body.String())
+	}
+	recovered, err := loadNASRelay("production")
+	if err != nil || recovered.Endpoint != endpoint || recovered.Seed != legacy.Seed {
+		t.Fatal("legacy state was not repaired without changing its identity")
+	}
+	w = call("POST", `{"action":"begin","name":"synthetic"}`)
+	if w.Code != 200 {
+		t.Fatalf("recovered begin = %d", w.Code)
+	}
+	if json.Unmarshal(w.Body.Bytes(), &view) != nil || view.State != "pending" {
+		t.Fatalf("recovered begin response: %s", w.Body.String())
+	}
+}
