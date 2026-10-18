@@ -142,3 +142,7 @@ build45收到明确真机失败，不再以既有模拟通过宣称能用。buil
 ## 2026-10-16 build63外部批准与GitHub Release
 
 build63外部Beta审核通过，Apple读回外部IN_BETA_TESTING；外部组另开公开链接（上限50人）。GitHub prerelease app-v0.1.13指向App build63来源5c7b3ab，附服务0.1.11/build12安装包（来源68dec03，二进制与维护者NAS运行版本SHA-256一致，未重建；服务清单channel为testing）、两份清单及SHA256SUMS。App Store 0.1.8仍为WAITING_FOR_REVIEW。
+
+## 2026-10-18 服务0.1.12独立GitHub Release
+
+服务0.1.12/build13修复中继地址缺失提示和旧空endpoint自愈，独立GitHub prerelease `server-v0.1.12`指向冻结来源ad92879。附件为Linux amd64安装包、服务清单及SHA256SUMS；GitHub回下载校验通过，包内二进制与维护者NAS当前运行文件一致。真实中继入口、账号和密钥未写入公开仓库或安装包，测试者按维护者通知配置Production入口。
