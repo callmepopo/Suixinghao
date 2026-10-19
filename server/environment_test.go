@@ -89,6 +89,9 @@ func TestEmbeddedWebRoutesAndOptionalSourceCommit(t *testing.T) {
 		if response.Code != http.StatusOK || response.Body.Len() == 0 {
 			t.Errorf("embedded asset unavailable: %s (%d)", path, response.Code)
 		}
+		if path == "/voice-test/app-access/" && (!strings.Contains(response.Body.String(), "重新申请开通推送") || !strings.Contains(response.Body.String(), "已被发布者管理员停用")) {
+			t.Error("push re-enrollment guidance missing from embedded management page")
+		}
 	}
 	oldCommit := sourceCommit
 	defer func() { sourceCommit = oldCommit }()

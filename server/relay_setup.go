@@ -270,12 +270,15 @@ func nasPushSetup(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Retries keep the current nickname; a fresh flow after an owner-requested
+		// unbind may replace the management label without changing NAS identity.
+		requestState := s
 		if s.Revoked {
-			w.WriteHeader(403)
-			return
+			// Owner-requested unbind keeps the same instance identity, but a fresh
+			// enrollment may use the newly entered management label.
+			requestState.Name = name
 		}
-		// Current nickname is stable for this instance; retries don't change recipient.
-		b, e := nasRelayRequest(r.Context(), s, "bind", nil)
+		b, e := nasRelayRequest(r.Context(), requestState, "bind", nil)
 		if e != nil {
 			fail(e)
 			return
@@ -288,6 +291,7 @@ func nasPushSetup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if result.State == "authorized" {
+			s.Revoked = false
 			if e = claimNASRelay(r.Context(), &s, "renew"); e != nil {
 				fail(e)
 				return
@@ -303,6 +307,16 @@ func nasPushSetup(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(503)
 				return
 			}
+			// A binding response proves the relay has no current authorization for
+			// this instance. Clear any stale local grant, including after a prior
+			// unbind succeeded remotely but its local state write failed.
+			s.Name = requestState.Name
+			s.Credential = ""
+			s.GrantID = ""
+			s.ConfirmedAppKey = ""
+			s.Expires = time.Time{}
+			s.LastRenewed = time.Time{}
+			s.Revoked = false
 			s.Binding = &binding
 			if saveNASRelay(s) != nil {
 				w.WriteHeader(503)

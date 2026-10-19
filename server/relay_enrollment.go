@@ -38,6 +38,15 @@ func appendAudit(a []relayAudit, e relayAudit) []relayAudit {
 func grantActive(g relayGrant, now time.Time) bool {
 	return g.Revoked.IsZero() && (g.Expires.IsZero() || now.Before(g.Expires))
 }
+
+func revocationReason(g relayGrant) string {
+	for i := len(g.History) - 1; i >= 0; i-- {
+		if g.History[i].Action == "revoked" {
+			return g.History[i].Reason
+		}
+	}
+	return ""
+}
 func lockRelayStorage() (func(), error) {
 	p := relayGrantsPath() + ".lock"
 	if e := os.MkdirAll(filepath.Dir(p), 0700); e != nil {
@@ -254,27 +263,49 @@ func (p *pushRelay) enrollment(w http.ResponseWriter, r *http.Request) bool {
 		w.WriteHeader(503)
 		return true
 	}
-	// Instance identity is immutable; revoked instances cannot re-enroll by retry.
+	// Keep one stable NAS identity. An owner-requested unbind may start a fresh
+	// proof flow, but an administrator revocation permanently blocks the instance.
 	index := -1
+	ownerRevoked := false
+	administratorBlocked := false
 	for i, g := range grants {
 		if g.Instance == instance && g.Environment == p.Environment {
-			index = i
-			break
+			if !g.Revoked.IsZero() {
+				if revocationReason(g) == "instance_owner" {
+					ownerRevoked = true
+				} else {
+					administratorBlocked = true
+				}
+				continue
+			}
+			if index < 0 || grants[index].Created.Before(g.Created) {
+				index = i
+			}
 		}
 	}
 	write := func(v any) { w.Header().Set("Content-Type", "application/json"); json.NewEncoder(w).Encode(v) }
 	if path == "bind" {
+		if administratorBlocked {
+			w.WriteHeader(403)
+			return true
+		}
 		if index >= 0 {
 			g := grants[index]
-			if !g.Revoked.IsZero() {
-				w.WriteHeader(403)
-				return true
-			}
 			write(map[string]any{"state": "authorized", "grant_id": g.ID, "expires_at": g.Expires})
 			return true
 		}
 		for _, b := range bindings {
 			if b.Instance == instance && b.Environment == p.Environment {
+				used := false
+				for _, g := range grants {
+					if g.BindingID == b.ID {
+						used = true
+						break
+					}
+				}
+				if used {
+					continue
+				}
 				write(b)
 				return true
 			}
@@ -294,18 +325,24 @@ func (p *pushRelay) enrollment(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if path == "confirm" {
+		if administratorBlocked {
+			w.WriteHeader(403)
+			return true
+		}
 		if index >= 0 {
 			g := grants[index]
-			if !g.Revoked.IsZero() {
-				w.WriteHeader(403)
-				return true
-			}
 			if g.BindingID != msg.BindingID {
 				w.WriteHeader(409)
 				return true
 			}
 			write(map[string]any{"state": "authorized", "grant_id": g.ID, "confirmed_app_key": g.AttestID})
 			return true
+		}
+		for _, g := range grants {
+			if g.BindingID != "" && g.BindingID == msg.BindingID {
+				w.WriteHeader(409)
+				return true
+			}
 		}
 		var binding *relayBinding
 		for i := range bindings {
@@ -322,17 +359,19 @@ func (p *pushRelay) enrollment(w http.ResponseWriter, r *http.Request) bool {
 		proof := *env.Proof
 		stored := ""
 		counter := uint32(0)
-		associated := 0
+		associatedInstances := map[string]bool{}
 		for _, g := range grants {
 			if g.AttestID == proof.KeyID {
 				stored = g.AttestPublic
 				if g.AttestCounter > counter {
 					counter = g.AttestCounter
 				}
-				associated++
+				if g.Instance != "" {
+					associatedInstances[g.Instance] = true
+				}
 			}
 		}
-		if associated >= 3 {
+		if !associatedInstances[instance] && len(associatedInstances) >= 3 {
 			w.WriteHeader(429)
 			return true
 		}
@@ -365,14 +404,14 @@ func (p *pushRelay) enrollment(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if index < 0 {
+		if ownerRevoked || administratorBlocked {
+			w.WriteHeader(403)
+			return true
+		}
 		w.WriteHeader(404)
 		return true
 	}
 	g := grants[index]
-	if !g.Revoked.IsZero() {
-		w.WriteHeader(403)
-		return true
-	}
 	if path == "unbind" {
 		g.Revoked = now
 		g.History = appendAudit(g.History, relayAudit{At: now, Action: "revoked", Reason: "instance_owner"})

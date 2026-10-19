@@ -135,11 +135,43 @@ func TestAutomaticEnrollmentLifecycleAndLedger(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal("unbind")
 	}
-	for _, action := range []string{"bind", "claim", "renew"} {
+	for _, action := range []string{"claim", "renew"} {
 		w, _ = enrollmentCall(p, key, action, b.ID, "synthetic recipient", nil)
 		if w.Code != 403 {
-			t.Fatalf("revocation bypass %s: %d", action, w.Code)
+			t.Fatalf("revoked credential bypass %s: %d", action, w.Code)
 		}
+	}
+	rebinding := beginFixture(t, p, key)
+	if rebinding.ID == b.ID {
+		t.Fatal("owner re-enrollment reused old binding")
+	}
+	w, _ = enrollmentCall(p, key, "confirm", rebinding.ID, "renamed recipient", proof)
+	if w.Code != 200 {
+		t.Fatalf("owner re-enrollment confirm %d", w.Code)
+	}
+	w, _ = enrollmentCall(p, key, "claim", rebinding.ID, "renamed recipient", nil)
+	if w.Code != 200 {
+		t.Fatalf("owner re-enrollment claim %d", w.Code)
+	}
+	var replacement struct {
+		Credential string `json:"credential"`
+	}
+	if json.Unmarshal(w.Body.Bytes(), &replacement) != nil || replacement.Credential == "" || replacement.Credential == claim.Credential {
+		t.Fatal("owner re-enrollment did not rotate credential")
+	}
+	if w = relayTestRequest(p, claim.Credential, relayBody("sms", "")); w.Code != 401 {
+		t.Fatalf("old credential remained valid after re-enrollment: %d", w.Code)
+	}
+	grants, _ = loadRelayGrants()
+	if len(grants) != 2 || revocationReason(grants[0]) != "instance_owner" || !grants[1].Revoked.IsZero() {
+		t.Fatal("owner re-enrollment ledger")
+	}
+	if e := relayCommand(context.Background(), []string{"relay-revoke", grants[1].ID}); e != nil {
+		t.Fatal(e)
+	}
+	w, _ = enrollmentCall(p, key, "bind", "", "synthetic recipient", nil)
+	if w.Code != 403 {
+		t.Fatalf("administrator revocation re-enrolled: %d", w.Code)
 	}
 }
 func TestEnrollmentExpiryIsolationAndQuotas(t *testing.T) {
@@ -157,17 +189,32 @@ func TestEnrollmentExpiryIsolationAndQuotas(t *testing.T) {
 	if w.Code != 410 {
 		t.Fatal("expiry")
 	}
-	for i := 0; i < 4; i++ {
+	keys := make([]ed25519.PrivateKey, 0, 3)
+	bindings := make([]relayBinding, 0, 3)
+	for i := 0; i < 3; i++ {
 		_, k, _ := ed25519.GenerateKey(rand.Reader)
 		b := beginFixture(t, p, k)
 		w, _ = enrollmentCall(p, k, "confirm", b.ID, "synthetic recipient", &attestProof{KeyID: "same-app", Object: "synthetic-verified"})
-		want := 200
-		if i == 3 {
-			want = 429
-		}
-		if w.Code != want {
+		if w.Code != 200 {
 			t.Fatalf("quota %d: %d", i, w.Code)
 		}
+		keys = append(keys, k)
+		bindings = append(bindings, b)
+	}
+	w, _ = enrollmentCall(p, keys[0], "unbind", bindings[0].ID, "synthetic recipient", nil)
+	if w.Code != 200 {
+		t.Fatal("quota owner unbind")
+	}
+	rebinding := beginFixture(t, p, keys[0])
+	w, _ = enrollmentCall(p, keys[0], "confirm", rebinding.ID, "synthetic recipient", &attestProof{KeyID: "same-app", Object: "synthetic-verified"})
+	if w.Code != 200 {
+		t.Fatalf("same instance consumed quota: %d", w.Code)
+	}
+	_, fourth, _ := ed25519.GenerateKey(rand.Reader)
+	fourthBinding := beginFixture(t, p, fourth)
+	w, _ = enrollmentCall(p, fourth, "confirm", fourthBinding.ID, "synthetic recipient", &attestProof{KeyID: "same-app", Object: "synthetic-verified"})
+	if w.Code != 429 {
+		t.Fatalf("fourth unique instance quota: %d", w.Code)
 	}
 }
 func TestConcurrentConfirmationIssuesOneGrant(t *testing.T) {
@@ -227,6 +274,7 @@ func TestNASAdministrationAndPrivateClaim(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	originalBindingID := s.Binding.ID
 	if _, e = nasRelayRequest(context.Background(), s, "confirm", &attestProof{KeyID: "app-key", Object: "synthetic-verified"}); e != nil {
 		t.Fatal(e)
 	}
@@ -243,6 +291,21 @@ func TestNASAdministrationAndPrivateClaim(t *testing.T) {
 	fi, _ := os.Stat(autoRelayPath("production"))
 	if fi.Mode().Perm() != 0600 {
 		t.Fatal("unsafe NAS file")
+	}
+	originalSeed := s.Seed
+	if w = call(admin, `{"action":"unbind"}`); w.Code != 200 {
+		t.Fatalf("NAS unbind %d", w.Code)
+	}
+	if w = call(admin, `{"action":"begin","name":"renamed"}`); w.Code != 200 {
+		t.Fatalf("NAS re-enrollment begin %d", w.Code)
+	}
+	var view relaySetupView
+	if json.Unmarshal(w.Body.Bytes(), &view) != nil || view.State != "pending" || view.GrantID != "" {
+		t.Fatalf("NAS re-enrollment state: %s", w.Body.String())
+	}
+	reenrolling, e := loadNASRelay("production")
+	if e != nil || reenrolling.Seed != originalSeed || reenrolling.Revoked || reenrolling.Credential != "" || reenrolling.Name != "renamed" || reenrolling.Binding == nil || reenrolling.Binding.ID == originalBindingID {
+		t.Fatal("NAS re-enrollment did not preserve identity and clear old authorization")
 	}
 }
 

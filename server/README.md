@@ -42,3 +42,5 @@ GOCACHE="$PWD/.build/go-cache" VOICE_WEB_ADDR=127.0.0.1:17581 go run . serve-pag
 
 
 服务0.1.5增加受控自动绑定与授权台账：NAS管理接口在relay_setup.go，VPS流程在relay_enrollment.go，官方应用验证在app_attest.go，使用系统Go密码库及嵌入的Apple公共根证书，无新增Go依赖。relay-export仅在管理员本机写新私有文件，不开放管理HTTP。部署、32KiB反代上限与环境参数见[中继说明](../docs/push-relay.md)。
+
+服务0.1.13允许NAS管理员主动解除后以原实例身份重新申请，必须使用新挑战并由官方App再次确认，旧凭据不恢复；发布者管理员撤销仍永久阻断实例。配额按同一App证明密钥下的唯一NAS实例计数，同实例重新开通不重复占用。
