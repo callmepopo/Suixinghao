@@ -146,3 +146,7 @@ build63外部Beta审核通过，Apple读回外部IN_BETA_TESTING；外部组另�
 ## 2026-10-18 服务0.1.12独立GitHub Release
 
 服务0.1.12/build13修复中继地址缺失提示和旧空endpoint自愈，独立GitHub prerelease `server-v0.1.12`指向冻结来源ad92879。附件为Linux amd64安装包、服务清单及SHA256SUMS；GitHub回下载校验通过，包内二进制与维护者NAS当前运行文件一致。真实中继入口、账号和密钥未写入公开仓库或安装包，测试者按维护者通知配置Production入口。
+
+## 2026-10-19 服务0.1.13独立GitHub Release
+
+服务0.1.13/build14修复用户主动解除后无法重新开通：同一NAS重新申请须再次通过App确认并取得新凭据，旧凭据永久失效；发布者管理员撤销仍永久阻断，配额按唯一NAS实例计数。独立GitHub prerelease `server-v0.1.13`指向冻结来源9fac78a；附件为Linux amd64安装包、服务清单及SHA256SUMS，包内二进制与维护者NAS及两套测试中继运行文件一致。iOS App未修改或升版；真实中继入口、账号和密钥不进入公开仓库或安装包。

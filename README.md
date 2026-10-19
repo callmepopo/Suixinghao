@@ -4,11 +4,9 @@
 
 将家里的蜂窝通信模块接入自建服务，在 iPhone 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-> **当前公开测试版本：App 0.1.13/build63，服务端 0.1.12/build13。** TestFlight外部测试已开放；配套服务支持通话切网重连、声音设备切换、延迟优化及中继配置自检。GitHub以prerelease提供，正式商店发布另行处理。
+> **当前公开测试版本：App 0.1.13/build63，服务端 0.1.13/build14。** TestFlight外部测试已开放；配套服务支持通话切网重连、声音设备切换、延迟优化及推送授权重新申请。GitHub以prerelease提供，正式商店发布另行处理。
 
-服务端0.1.12/build13补充中继地址缺失提示，并自动修复旧版首次失败申请留下的空地址状态；可从[独立服务端测试版 Release](https://github.com/callmepopo/Suixinghao/releases/tag/server-v0.1.12)下载。真实中继地址不内置在公开包中，官方App测试者须从维护者通知获取。
-
-develop中的服务0.1.13/build14已部署维护者测试环境，尚未发布GitHub安装包：用户主动解除推送授权后，可保留同一NAS实例身份重新申请，并在现有官方App中再次确认；发布者管理员撤销仍不可自行恢复。iOS App不需修改或升版。
+服务端0.1.13/build14允许用户主动解除后保留同一NAS实例身份重新申请，并在现有官方App中再次确认；旧凭据永久失效，发布者管理员撤销仍不可自行恢复。可从[独立服务端测试版 Release](https://github.com/callmepopo/Suixinghao/releases/tag/server-v0.1.13)下载，iOS App不需修改或升版。真实中继地址不内置在公开包中，官方App测试者须从维护者通知获取。
 
 [自动推送：前提与开通步骤](docs/automatic-push.md) · [部署指南](deploy/unraid/README.md) · [iOS 客户端](ios/README.md) · [接口规范](docs/API.md) · [已知限制](docs/limitations.md) · [问题反馈](https://github.com/callmepopo/Suixinghao/issues)
 
