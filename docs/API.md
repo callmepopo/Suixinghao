@@ -197,3 +197,5 @@ v2在audio_stats中增加events（每窗口最多16条）与level。事件只允
 - `POST`管理员路径：`{"action":"begin","name":"登记昵称"}`申请，或 `{"action":"unbind"}`解除自动授权。已有手工路径显示manual，申请返回409，不隐式迁移。0.1.13起，用户主动解除后可用同一实例再次begin，必须经新挑战与App confirm后才签发新授权；管理员撤销返回403。
 - 状态：relay_not_configured／not_enabled／pending／binding_expired／authorized／expired／revoked／manual。relay_not_configured表示所选环境尚未配置完整中继URL；此时begin返回409且不创建实例状态。0.1.12起，补齐配置并重启后会保留既有实例身份并自动修复旧版保存的空endpoint。revoked表示旧授权已失效；是否允许重新申请由中继保存的撤销来源决定。authorized仅表示NAS已取得授权，手机推送登记和真实送达须分别验收。
 - 中继 `POST /push-relay/v1/bind|confirm|claim|renew|unbind` 使用签名NAS信封，不使用手机App Key；confirm另含App Attest证明。严格JSON、最大32KiB、签名时间窗口60秒、nonce不可重放。401签名无效；403证明失败或撤销；409重放／冲突；410请求过期；429限额；503未启用或存储不可用。细节见[中继说明](push-relay.md)。
+
+服务0.1.14起，未显式配置中继URL且无已保存自动授权地址时，Production使用 `https://sxhpush.jphr.cc/push-relay/v1/push`，Sandbox使用同域名 `/sandbox/push-relay/v1/push`；请求协议不变。已注册的中继域名及原授权继续可用，升级不自动迁移。

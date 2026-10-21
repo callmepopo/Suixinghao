@@ -43,6 +43,9 @@ type relaySetupView struct {
 
 var nasRelayMu sync.Mutex
 
+// Public publisher endpoint; private keys and authorization stay on the relay.
+const officialRelayEndpoint = "https://sxhpush.jphr.cc/push-relay/v1/push"
+
 func autoRelayPath(environment string) string { return dataPath("relay-auto-" + environment + ".json") }
 func loadNASRelay(environment string) (nasRelayState, error) {
 	var s nasRelayState
@@ -55,12 +58,25 @@ func loadNASRelay(environment string) (nasRelayState, error) {
 }
 func saveNASRelay(s nasRelayState) error { return privateJSON(autoRelayPath(s.Environment), s) }
 func relayEndpoint(environment string) string {
+	if environment != "sandbox" && environment != "production" {
+		return ""
+	}
 	suffix := "_" + strings.ToUpper(environment)
 	endpoint := os.Getenv("VOICE_WEB_PUSH_RELAY_URL" + suffix)
-	if endpoint == "" && os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix) == "" {
-		endpoint = os.Getenv("VOICE_WEB_PUSH_RELAY_URL")
+	if endpoint != "" || os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix) != "" {
+		return endpoint
 	}
-	return endpoint
+	if endpoint = os.Getenv("VOICE_WEB_PUSH_RELAY_URL"); endpoint != "" || os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE") != "" {
+		return endpoint
+	}
+	// Existing automatic authorizations remain bound to their original endpoint.
+	if s, err := loadNASRelay(environment); err == nil && s.Endpoint != "" {
+		return s.Endpoint
+	}
+	if environment == "sandbox" {
+		return strings.Replace(officialRelayEndpoint, "/push-relay/", "/sandbox/push-relay/", 1)
+	}
+	return officialRelayEndpoint
 }
 func manualRelayConfigured(environment string) bool {
 	suffix := "_" + strings.ToUpper(environment)

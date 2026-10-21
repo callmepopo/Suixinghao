@@ -4,9 +4,9 @@
 
 将家里的蜂窝通信模块接入自建服务，在 iPhone 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-> **当前公开测试版本：App 0.1.13/build63，服务端 0.1.13/build14。** TestFlight外部测试已开放；配套服务支持通话切网重连、声音设备切换、延迟优化及推送授权重新申请。GitHub以prerelease提供，正式商店发布另行处理。
+> **当前公开测试版本：App 0.1.13/build63，服务端 0.1.14/build15。** TestFlight外部测试已开放；配套服务支持通话切网重连、声音设备切换、延迟优化及推送授权重新申请。GitHub以prerelease提供，正式商店发布另行处理。
 
-服务端0.1.13/build14允许用户主动解除后保留同一NAS实例身份重新申请，并在现有官方App中再次确认；旧凭据永久失效，发布者管理员撤销仍不可自行恢复。可从[独立服务端测试版 Release](https://github.com/callmepopo/Suixinghao/releases/tag/server-v0.1.13)下载，iOS App不需修改或升版。真实中继地址不内置在公开包中，官方App测试者须从维护者通知获取。
+服务端0.1.14/build15新增默认官方中继，并保留0.1.13起的授权重新申请功能：允许用户主动解除后保留同一NAS实例身份重新申请，并在现有官方App中再次确认；旧凭据永久失效，发布者管理员撤销仍不可自行恢复。可从[独立服务端测试版 Release](https://github.com/callmepopo/Suixinghao/releases/tag/server-v0.1.14)下载，iOS App不需修改或升版。**已注册的中继域名继续可用，原凭证与授权不因新域名上线失效。新的默认中继地址是 `sxhpush.jphr.cc`；升级保留已有显式配置及自动授权原地址，不自动迁移。**
 
 [自动推送：前提与开通步骤](docs/automatic-push.md) · [部署指南](deploy/unraid/README.md) · [iOS 客户端](ios/README.md) · [接口规范](docs/API.md) · [已知限制](docs/limitations.md) · [问题反馈](https://github.com/callmepopo/Suixinghao/issues)
 
@@ -78,4 +78,4 @@ App 不内置个人服务地址或 Key，Key 保存在本机钥匙串；服务�
 贡献方式见 [CONTRIBUTING](CONTRIBUTING.md)，安全反馈见 [SECURITY](SECURITY.md)，变更见 [CHANGELOG](CHANGELOG.md)。提交问题时仅使用合成数据，删除号码、短信、设备标识和凭据。
 
 
-官方推送自动开通由App0.1.9／服务0.1.5起提供：用户自行部署兼容NAS及HTTPS入口，先配置发布者提供的完整中继URL，再在NAS管理页申请、App设置页确认，服务器自动领取／续期，无需用户VPS或开发者账号。公开配置中的`relay.example.org`只是占位地址。发布者必须启用App Attest核验；旧手工凭据仍兼容。签发台账、身份数据和验证层级见[推送中继](docs/push-relay.md)。维护者及首个网友自建NAS自动绑定均已取得授权记录；真实锁屏送达仍按每套环境独立验收。
+官方推送自动开通由App0.1.9／服务0.1.5起提供：用户自行部署兼容NAS及HTTPS入口，服务0.1.14起默认使用 `sxhpush.jphr.cc`，在NAS管理页申请、App设置页确认，服务器自动领取／续期，无需用户VPS或开发者账号。已注册的中继域名继续可用，已有配置优先。发布者必须启用App Attest核验；旧手工凭据仍兼容。签发台账、身份数据和验证层级见[推送中继](docs/push-relay.md)。维护者及首个网友自建NAS自动绑定均已取得授权记录；真实锁屏送达仍按每套环境独立验收。

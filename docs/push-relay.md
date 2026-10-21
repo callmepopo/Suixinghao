@@ -65,13 +65,13 @@ VOICE_WEB_DATA_DIR=<私有中继目录> ./voice-web relay-revoke <授权ID>
 
 ## 自动开通（服务0.1.5／App0.1.9）
 
-代码已增加自动授权流程，部署与真机证明验证需分别记录，不将合成测试记为Apple实证。用户自备兼容NAS、DJI及可从手机访问的HTTPS入口；不需要VPS或开发者账号。官方App不内置私人服务地址或中继私钥，中继地址由NAS配置提供。
+代码已增加自动授权流程，部署与真机证明验证需分别记录，不将合成测试记为Apple实证。用户自备兼容NAS、DJI及可从手机访问的HTTPS入口；不需要VPS或开发者账号。官方App不内置私人服务地址或中继私钥，中继地址由NAS配置或0.1.14起的内置默认提供。
 
 NAS管理员在App接入页选择环境、登记昵称并申请；官方App通过该NAS的有效App Key取得绑定请求，在设置页确认。VPS验证NAS的Ed25519实例签名和Apple App Attest证明，签发该实例的独立授权；NAS认证领取后保存到本机0600文件。App不取得中继凭据。昵称为自报管理标识，不是已验证的真实身份，不自动关联TestFlight邮箱。
 
 发布者在各环境私有env设置 `VOICE_WEB_RELAY_AUTO_ENROLL=1` 和 `VOICE_WEB_APP_ATTEST_APP_ID=<实际App ID前缀>.com.junpo.suixinghao`。前缀从Apple权威资产／描述文件确认，不写进公开源码。服务嵌入Apple官网App Attest公共根证书，来源为 `https://www.apple.com/certificateauthority/Apple_App_Attestation_Root_CA.pem`，不是私钥；更换前核对官方来源。原App推送topic及APNs私钥不变。
 
-NAS配置匹配环境的完整中继URL，自动模式不设置该环境的 `VOICE_WEB_PUSH_RELAY_KEY_FILE_*`；手工凭据路径仍优先、不会自动替换。手工转自动时先备份配置，在NAS管理页明确移除该环境手工路径再申请；旧VPS授权不因此撤销。自动授权保存在 `relay-auto-<环境>.json`，含NAS随机身份种子及后端凭据，属于NAS私有资产；不得复制给App或放网页目录。备份此文件，避免重建实例占用额外授权。
+NAS使用内置默认或配置匹配环境的完整中继URL，自动模式不设置该环境的 `VOICE_WEB_PUSH_RELAY_KEY_FILE_*`；手工凭据路径仍优先、不会自动替换。手工转自动时先备份配置，在NAS管理页明确移除该环境手工路径再申请；旧VPS授权不因此撤销。自动授权保存在 `relay-auto-<环境>.json`，含NAS随机身份种子及后端凭据，属于NAS私有资产；不得复制给App或放网页目录。备份此文件，避免重建实例占用额外授权。
 
 绑定有效期10分钟。NAS信封包含action、公钥、昵称、环境、时间、随机nonce和binding_id，并以Ed25519签名；时间偏差不超过60秒，nonce按摘要防重放并保留120秒，部署双方需正确校时。App Attest验证链、nonce、App ID、环境、凭据公钥及认证计数；首次attestation后同一App实例使用assertion。开发环境与Production分离；不支持或证明失败时拒绝自动签发，保持手工方式，不用固定口令或客户端自报环境绕过核验。
 
@@ -102,3 +102,15 @@ python3 scripts/sync-relay-ledger.py --ledger <私有JSON> --material <私有网
 
 
 用户首次开通的前提、步骤与既有手工授权迁移见[自动推送说明](automatic-push.md)；不能只安装App就为任意服务器领取授权。
+
+## 服务0.1.14：默认官方中继
+
+**已注册的中继域名继续可用，原凭证与授权不因新域名上线失效。新的默认中继地址是 `sxhpush.jphr.cc`；升级保留已有显式配置及自动授权原地址，不自动迁移。**
+
+新部署默认Production为 `https://sxhpush.jphr.cc/push-relay/v1/push`，Sandbox为 `https://sxhpush.jphr.cc/sandbox/push-relay/v1/push`。不设置手工Key文件即可在NAS管理页申请、官方App确认，由中继自动验证、签发，NAS领取及续期。地址公开不代表已获推送权限。
+
+显式环境配置优先于旧通用配置，其次保留已保存自动授权的原地址，最后才使用内置默认。仅填手工Key而缺URL时拒绝借用默认入口。未申请中继的自签名直接APNs保持原行为。
+
+新旧官方入口共用对应环境授权库，凭证不绑定域名；NAS自动授权会核对保存的endpoint。因此迁移已有自动授权须在确认官方别名等价、电话空闲并备份后，同时调整该环境URL配置与私有relay-auto状态中的endpoint，保留原seed、credential、grant_id及期限，不修改另一环境。不能直接将凭证迁移到其他人的中继。
+
+新入口经Cloudflare代理，使用HTTPS、禁缓存及接口限流，API不能弹浏览器人机验证。旧直连入口保留，不能宣称源站IP完全隐藏。域名及配置验收不替代真实锁屏送达测试。App代码、版本及签名无需改动。

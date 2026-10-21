@@ -19,6 +19,11 @@ func relayEnabled() bool {
 			return true
 		}
 	}
+	for _, environment := range []string{"sandbox", "production"} {
+		if s, err := loadNASRelay(environment); err == nil && (s.Binding != nil || s.GrantID != "" || s.Credential != "") {
+			return true
+		}
+	}
 	return false
 }
 
@@ -36,7 +41,10 @@ func relayRoute(environment string) (string, string, error) {
 		credential = os.Getenv("VOICE_WEB_PUSH_RELAY_KEY_FILE")
 	}
 	if endpoint == "" {
-		return "", "", errors.New("incomplete relay route")
+		endpoint = relayEndpoint(environment)
+		if endpoint == "" {
+			return "", "", errors.New("incomplete relay route")
+		}
 	}
 	if credential == "" {
 		if _, err := automaticRelayCredential(environment, endpoint); err != nil {

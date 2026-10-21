@@ -137,7 +137,7 @@
 
 - 所选环境未配置完整中继URL时，NAS管理页明确提示先配置并重启，申请按钮不可用；服务端拒绝申请且不得生成实例种子或保存空地址状态。
 - 0.1.11及更早版本已经保存空`endpoint`时，补齐匹配环境配置并重启后，服务自动写回地址，同时保持原实例种子、昵称和其他生命周期状态，不要求管理员手工编辑私有JSON。
-- 公开部署材料明确`relay.example.org`为不可用占位地址，并说明官方TestFlight／App Store测试入口从发布者测试通知取得；真实运行域名不写入公开仓库。
+- 公开部署材料明确`relay.example.org`为不可用占位地址，并说明官方TestFlight／App Store测试入口从发布者测试通知取得；当时不公开个人运行域名；0.1.14起新增获授权公开的官方默认入口。
 
 验收：无URL时GET返回relay_not_configured、begin返回409且不落盘；构造旧空地址状态后补配置，GET自动修复且实例种子不变，随后begin返回pending。网页登录后主动刷新状态并显示中文提示。修复只涉及NAS服务与内嵌网页，不改iOS App或VPS中继。
 
@@ -200,3 +200,15 @@
 成功条件改为引擎运行、恢复完成且目标输出连续两次稳定；核验阶段只观察，不重复写入。切换/暂停/恢复失败期间不显示成功勾选。回归按现场Speaker→新引擎→HFP序列先在旧代码失败，修复后需保持同一引擎；覆盖听筒↔扬声器、HFP→两者及往返、静音/等待音、CallKit重激活、失联缓存入口、新旧通话采音/确认隔离。物理声音仍独立验收。Apple SDK依据：[引擎配置变化](https://developer.apple.com/documentation/avfaudio/avaudioengineconfigurationchangenotification)、[voiceChat](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode-swift.struct/voicechat)。
 
 发布阻断：build45约15秒建立通话超时，未见本次音频激活记录，根因未确定。先恢复历史39包，46不分发。修复验收必须包含连续拨号、取消后再次拨号、实际双向声音持续稳定及挂断后下一通隔离，不能只验证切换报错后通话未挂断。末段音质须分别核对采音/发送空档、接收欠载和安装时间；数值停顿不等于已解释全部听感反馈。
+
+## 服务0.1.14：默认官方中继
+
+**已注册的中继域名继续可用，原凭证与授权不因新域名上线失效。新的默认中继地址是 `sxhpush.jphr.cc`；升级保留已有显式配置及自动授权原地址，不自动迁移。**
+
+新部署默认Production为 `https://sxhpush.jphr.cc/push-relay/v1/push`，Sandbox为 `https://sxhpush.jphr.cc/sandbox/push-relay/v1/push`。不设置手工Key文件即可在NAS管理页申请、官方App确认，由中继自动验证、签发，NAS领取及续期。地址公开不代表已获推送权限。
+
+显式环境配置优先于旧通用配置，其次保留已保存自动授权的原地址，最后才使用内置默认。仅填手工Key而缺URL时拒绝借用默认入口。未申请中继的自签名直接APNs保持原行为。
+
+新旧官方入口共用对应环境授权库，凭证不绑定域名；NAS自动授权会核对保存的endpoint。因此迁移已有自动授权须在确认官方别名等价、电话空闲并备份后，同时调整该环境URL配置与私有relay-auto状态中的endpoint，保留原seed、credential、grant_id及期限，不修改另一环境。不能直接将凭证迁移到其他人的中继。
+
+新入口经Cloudflare代理，使用HTTPS、禁缓存及接口限流，API不能弹浏览器人机验证。旧直连入口保留，不能宣称源站IP完全隐藏。域名及配置验收不替代真实锁屏送达测试。App代码、版本及签名无需改动。

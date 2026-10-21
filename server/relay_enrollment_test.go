@@ -315,6 +315,9 @@ func TestNASMissingRelayEndpointAndLegacyStateRecovery(t *testing.T) {
 		t.Setenv("VOICE_WEB_PUSH_RELAY_URL"+suffix, "")
 		t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE"+suffix, "")
 	}
+	// An explicit key-only route must still fail closed, without borrowing the
+	// new official default or silently sending an old key to another endpoint.
+	t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE_PRODUCTION", "/private/missing-relay.key")
 	admin := strings.Repeat("b", 64)
 	sessions.Store(admin, time.Now().Add(time.Minute))
 	defer sessions.Delete(admin)
@@ -328,7 +331,7 @@ func TestNASMissingRelayEndpointAndLegacyStateRecovery(t *testing.T) {
 
 	w := call("GET", "")
 	var view relaySetupView
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &view) != nil || view.State != "relay_not_configured" {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &view) != nil || view.State != "manual" {
 		t.Fatalf("missing relay endpoint state: code=%d body=%s", w.Code, w.Body.String())
 	}
 	if w = call("POST", `{"action":"begin","name":"synthetic"}`); w.Code != 409 {
@@ -352,6 +355,7 @@ func TestNASMissingRelayEndpointAndLegacyStateRecovery(t *testing.T) {
 	relayHTTPClient = server.Client()
 	t.Cleanup(func() { relayHTTPClient = old })
 	endpoint := server.URL + "/push-relay/v1/push"
+	t.Setenv("VOICE_WEB_PUSH_RELAY_KEY_FILE_PRODUCTION", "")
 	t.Setenv("VOICE_WEB_PUSH_RELAY_URL_PRODUCTION", endpoint)
 
 	w = call("GET", "")
