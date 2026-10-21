@@ -71,6 +71,14 @@ App 不内置个人服务地址或 Key，Key 保存在本机钥匙串；服务�
 
 正式版本将对应固定源码标签、提交、构建环境和产物证明。App 关于页显示源码身份；未提交或有修改的本地构建会明确标记。详见 [发布与源码追溯](docs/releasing.md)。
 
+## 贡献者与致谢
+
+- **[callmepopo](https://github.com/callmepopo)**：项目发起与维护，负责产品需求、方案决策、设备及运行环境、真机验收和发布。
+- **[OpenAI Codex](https://github.com/oai-codex)**：主要 AI 开发贡献者，参与服务端与 iOS 客户端开发、问题排查与修复、测试验证、部署适配及文档维护。
+- **Claude Code**：AI 开发协作者，参与功能开发、通话音频优化与问题修复。
+
+以上记录项目实际协作角色；GitHub 自动生成的 Contributors 列表按提交署名统计，不能完整反映历史工作量。后续共同作者署名规范见 [贡献说明](CONTRIBUTING.md#提交署名)。
+
 ## 许可与协作
 
 本仓库自有代码采用 [MIT](LICENSE)。**HiDeck 的 PolyForm Noncommercial 许可和第三方驱动许可独立适用；MIT 不代表整套依赖允许商用。** 本项目不是 DJI、HiDeck、MaVo 或 Unraid 的官方产品。
