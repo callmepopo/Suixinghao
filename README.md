@@ -58,6 +58,7 @@ HiDeck 是独立上游依赖，不包含其源码；部署者从原项目获取�
 ## 接口与隐私
 
 - [API 规范](docs/API.md)：鉴权、电话状态、事件、音频、短信与错误码。
+- [技术支持 / Support](docs/support.md)：求助入口、常见问题与免费使用说明。
 - [隐私说明](docs/privacy.md)：本机保存、服务器处理、录音、推送与数据清除边界。
 - [运行与回退](docs/operations.md)、[需求与验收](docs/requirements.md)、[已知限制](docs/limitations.md)。
 

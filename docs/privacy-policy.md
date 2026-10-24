@@ -40,4 +40,4 @@ You can revoke permissions in iOS Settings, clear local history or configuration
 
 ## Support and changes
 
-For questions about the app or official relay, contact the maintainer through [Suixinghao support](https://github.com/callmepopo/Suixinghao/issues). Do not post App Keys, personal numbers, message content or recordings in public issues. For data retained by your own server, contact its operator. Material changes to this policy will be published here with an updated effective date.
+For questions about the app or official relay, contact the maintainer through [Suixinghao support](https://github.com/callmepopo/Suixinghao/blob/main/docs/support.md). Do not post App Keys, personal numbers, message content or recordings in public issues. For data retained by your own server, contact its operator. Material changes to this policy will be published here with an updated effective date.
