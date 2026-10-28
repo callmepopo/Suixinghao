@@ -1,5 +1,10 @@
 # 运行、日常测试与回退
 
+## App Store安装（2026-10-28已核验）
+
+App 0.1.13/build63已正式上架，可通过[App Store下载](https://apps.apple.com/us/app/id6820851330)安装。需自建兼容NAS服务、模块及SIM卡，并在App填写自己的HTTPS服务地址和独立App Key；部署与自动推送配置继续按下述文档执行。历史TestFlight仍为测试渠道，GitHub旧Release附件版本以该Release清单为准，最新服务包见独立服务Release。
+
+
 安装和参数的唯一通用说明在 [Unraid部署](../deploy/unraid/README.md)，接口以 [API](API.md) 为准。
 
 ## 日常状态

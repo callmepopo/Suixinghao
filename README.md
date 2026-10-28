@@ -4,7 +4,7 @@
 
 将家里的蜂窝通信模块接入自建服务，在 iPhone 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-> **当前公开测试版本：App 0.1.13/build63，服务端 0.1.14/build15。** TestFlight外部测试已开放；配套服务支持通话切网重连、声音设备切换、延迟优化及推送授权重新申请。GitHub以prerelease提供；App Store 0.1.13/build63已提交正式审核，等待审核，尚未上架。
+> **App 0.1.13（build 63）已通过正式审核并上架 App Store。** [App Store下载](https://apps.apple.com/us/app/id6820851330)。2026-10-28核对Apple状态为可供分发、可下载；同一构建仍提供TestFlight外部测试。服务端当前为0.1.14/build15，GitHub服务包仍以prerelease提供；支持通话切网重连、声音设备切换、延迟优化及推送授权重新申请。
 
 服务端0.1.14/build15新增默认官方中继，并保留0.1.13起的授权重新申请功能：允许用户主动解除后保留同一NAS实例身份重新申请，并在现有官方App中再次确认；旧凭据永久失效，发布者管理员撤销仍不可自行恢复。可从[独立服务端测试版 Release](https://github.com/callmepopo/Suixinghao/releases/tag/server-v0.1.14)下载，iOS App不需修改或升版。**已注册的中继域名继续可用，原凭证与授权不因新域名上线失效。新的默认中继地址是 `sxhpush.jphr.cc`；升级保留已有显式配置及自动授权原地址，不自动迁移。**
 
@@ -68,7 +68,7 @@ App 不内置个人服务地址或 Key，Key 保存在本机钥匙串；服务�
 
 新 App 身份为 **Suixinghao / com.junpo.suixinghao**，显示名称为“随行号”。它按新 App 安装，需重新配置服务；旧 App 的本机数据不会自动迁移。
 
-首版计划分发地区保持既有海外范围；正式上架状态以Apple读回为准，本轮只更新GitHub测试版本与TestFlight外部Beta提交。官方App的锁屏推送由发布者维护Apple身份，用户无需Apple开发者账号或VPS。当前提供受控自动绑定及原手工方式，前提、部署与验收见[自动开通说明](docs/automatic-push.md)和[中继契约](docs/push-relay.md)。
+App 0.1.13/build63已正式上架；分发地区保持既有美国、香港、印度、土耳其、菲律宾范围，不含中国大陆。官方App的锁屏推送由发布者维护Apple身份，用户无需Apple开发者账号或VPS。当前提供受控自动绑定及原手工方式，前提、部署与验收见[自动开通说明](docs/automatic-push.md)和[中继契约](docs/push-relay.md)。
 
 正式版本将对应固定源码标签、提交、构建环境和产物证明。App 关于页显示源码身份；未提交或有修改的本地构建会明确标记。详见 [发布与源码追溯](docs/releasing.md)。
 

@@ -1,6 +1,6 @@
 # App Store后续与推送边界
 
-> 当前正式商店状态（2026-10-24）：**App 0.1.13/build63 已重新提交，Apple读回WAITING_FOR_REVIEW，尚未批准或上架。** 复用既有已测试构建，来源5c7b3ab；旧0.1.8/build37拒审已逐项回复。支持URL已换为[中英文支持页](support.md)，隐私标签已核对；审核通过后自动发布。以下早期构建描述保留为历史背景，以本段及文末最新状态为准。
+> 当前正式商店状态（2026-10-28核验）：**App 0.1.13/build63 已通过审核并自动上架，可下载。** [App Store下载](https://apps.apple.com/us/app/id6820851330)。Apple版本状态READY_FOR_SALE／READY_FOR_DISTRIBUTION，downloadable=true，原审核提交COMPLETE；关联构建63为VALID，来源仍为5c7b3ab。本次未重建或重新上传。以下早期构建描述保留为历史背景，以本段及文末最新状态为准。
 
 
 GitHub公开iOS源码、用户通过App Store安装、填写自己服务地址/Key的模式可行。已有官方案例 [Nextcloud iOS源码](https://github.com/nextcloud/ios) 直接链接 [美区App Store](https://apps.apple.com/us/app/nextcloud/id1125420102)，其商店说明允许用户自行托管。开源与Apple签名/审核是独立流程，开源不等于上架已通过。
@@ -58,3 +58,7 @@ Apple正式审核0.1.8/build37读回REJECTED，要求说明通讯录是否上传
 按维护者明确指令将原审核版本改为0.1.13并关联既有build63（Apple VALID、APP_STORE_ELIGIBLE，内部／外部TestFlight均IN_BETA_TESTING），没有重建、重新上传或改动产物来源。英文答复已发送并在审核线程确认，逐项说明通讯录本地拨号查找、不上传／服务器不保存通讯录、免费技术分享及App Key非付费激活码。描述和审核备注同步新版功能、免费模式与支持入口；审核专用接入鉴权、模块available与电话idle通过，只读状态检查不代表新一轮真实通话验收。
 
 商店现有App Privacy为用户ID、设备ID、其他使用数据，均用于App功能且与身份关联；对照自动授权实例、应用证明及生命周期信息核对后保留，未改为无数据收集。现有硬件／实机附件处理COMPLETE，明确其为0.1.8/build37历史操作演示，不标成build63录像。原审核线程于2026-10-24 13:30:56 UTC（台北21:30:56）重新提交，版本及提交均读回WAITING_FOR_REVIEW；保持AFTER_APPROVAL自动发布。网友外测、NAS及中继不变；未新增真机或锁屏验收。
+
+## 2026-10-28 正式上架核验
+
+Apple API核对0.1.13关联build63，正式审核提交COMPLETE，版本READY_FOR_SALE／READY_FOR_DISTRIBUTION、downloadable=true；按AFTER_APPROVAL自动发布。此日期是核验日期，不代表精确批准时间。商店安装使用上述下载入口，仍需自建兼容NAS服务、模块及SIM卡；App不预置个人服务地址或Key。GitHub原标签、附件及产物来源保留，不新增手机安装、真实通话或锁屏验收。
