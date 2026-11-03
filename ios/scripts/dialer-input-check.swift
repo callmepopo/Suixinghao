@@ -25,6 +25,34 @@ import Foundation
         permissionSheet.transition(to: .inactive, callInProgress: false, pendingExternalNumber: false)
         permissionSheet.transition(to: .active, callInProgress: false, pendingExternalNumber: false)
         precondition(permissionSheet.number == "synthetic-draft")
+        // Long press 0: "+" only at the start, otherwise a plain "0"; never both.
+        var plus = DialerInput()
+        precondition(plus.longPressZero() && plus.number == "+")
+        precondition(plus.longPressZero() && plus.number == "+0")
+        var typed = DialerInput(number: "138")
+        precondition(typed.longPressZero() && typed.number == "1380")
+        var full = DialerInput(number: String(repeating: "1", count: DialerInput.maxLength))
+        precondition(!full.append("2") && !full.longPressZero() && full.number.count == DialerInput.maxLength)
+        precondition(full.deleteLast() && full.number.count == DialerInput.maxLength - 1)
+        var empty = DialerInput()
+        precondition(!empty.deleteLast())
+        // Paste cleaning.
+        let pastes: [(String, String?)] = [
+            ("+86 138-0013-8000", "+8613800138000"), ("(010) 6552.9988", "01065529988"),
+            (" 138 0013 8000\n", "13800138000"), ("＋1 202 555 0123", "+12025550123"),
+            ("*#06#", "*#06#"), ("95588", "95588"),
+            ("Tel: 13800138000", nil), ("138+0013", nil), ("hello", nil), ("", nil), ("- -", nil),
+            ("12345678901234567", nil), ("1234567890123456", "1234567890123456"),
+        ]
+        for (text, expected) in pastes {
+            precondition(DialerInput.sanitizedPaste(text) == expected, "paste \(text)")
+        }
+        // Display grouping.
+        for (raw, shown) in [("138", "138"), ("1380", "138 0"), ("1380013", "138 0013"), ("13800138000", "138 0013 8000"),
+                             ("010", "010"), ("+8613800138000", "+8613800138000"), ("138001380001", "138001380001")] {
+            precondition(DialerInput.display(raw) == shown, "display \(raw)")
+        }
         print("Dialer input: external handoff callback orders, cold start, call, pending and inactive transitions passed")
+        print("Dialer input: long-press plus, length limit, delete, paste cleaning and number grouping passed")
     }
 }
