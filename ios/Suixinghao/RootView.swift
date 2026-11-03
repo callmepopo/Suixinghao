@@ -398,6 +398,9 @@ struct MessagesView: View {
     @State private var deletingContact: SMSContact?
     @State private var deleting = false
     @State private var deletionError: String?
+    #if DEBUG
+    @State private var previewThread = ProcessInfo.processInfo.arguments.contains("--preview-sms-code")
+    #endif
     var body: some View {
         NavigationStack {
             List {
@@ -419,23 +422,28 @@ struct MessagesView: View {
                             Button("删除会话", role: .destructive) { deletingContact = contact }
                                 .disabled(model.demo || !model.connected || deleting)
                         }
+                        // Attached to the row so the dialog anchors next to the swiped conversation.
+                        .confirmationDialog("删除整个短信会话？", isPresented: Binding(get: { deletingContact?.id == contact.id }, set: { if !$0 { deletingContact = nil } }), titleVisibility: .visible) {
+                            Button("删除整个会话", role: .destructive) {
+                                Task {
+                                    deleting = true
+                                    defer { deleting = false }
+                                    do { try await model.deleteSMS(contact: contact) }
+                                    catch { deletionError = error.localizedDescription }
+                                }
+                            }
+                        } message: { Text("将删除服务器中该 SIM 与对方的全部历史短信（含未显示的消息），其他设备也会同步。无法撤销。") }
                     }
                 } footer: { Text("模块 SIM 的短信 · 与 iPhone 系统信息独立") }
             }.navigationTitle("短信").refreshable { await model.refresh() }
                 .toolbar { Button { composing = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新建短信").disabled(model.demo || model.busy) }
                 .sheet(isPresented: $composing) { ComposeView() }
-                .confirmationDialog("删除整个短信会话？", isPresented: Binding(get: { deletingContact != nil }, set: { if !$0 { deletingContact = nil } }), titleVisibility: .visible) {
-                    if let contact = deletingContact {
-                        Button("删除整个会话", role: .destructive) {
-                            Task {
-                                deleting = true
-                                defer { deleting = false }
-                                do { try await model.deleteSMS(contact: contact) }
-                                catch { deletionError = error.localizedDescription }
-                            }
-                        }
-                    }
-                } message: { Text("将删除服务器中该 SIM 与对方的全部历史短信（含未显示的消息），其他设备也会同步。无法撤销。") }
+                #if DEBUG
+                // Synthetic layout fixture: open the first demo thread directly.
+                .navigationDestination(isPresented: $previewThread) {
+                    if let first = model.visibleContacts.first { ThreadView(contact: first) }
+                }
+                #endif
                 .alert("删除未完成", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
                     Button("好", role: .cancel) { deletionError = nil }
                 } message: { Text(deletionError ?? "") }
@@ -452,7 +460,7 @@ struct ThreadView: View {
     @State private var draft = ""
     @State private var sending = false
     @State private var replyStatus = ""
-    @State private var deletingMessage: SMSMessage?
+    @State private var copiedMessageID: Int?
     @State private var deleting = false
     @State private var deletionError: String?
     private var replyDevice: String? {
@@ -468,30 +476,29 @@ struct ThreadView: View {
                 ForEach(messages) { message in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(message.content).textSelection(.enabled)
+                        if message.type == 1, let code = VerificationCode.extract(from: message.content) {
+                            Button {
+                                UIPasteboard.general.string = code
+                                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                copiedMessageID = message.id
+                            } label: {
+                                Label(copiedMessageID == message.id ? "已复制 \(code)" : "复制验证码 \(code)",
+                                      systemImage: copiedMessageID == message.id ? "checkmark" : "doc.on.doc")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered).tint(.teal)
+                            .accessibilityLabel("复制验证码")
+                        }
                         Text("\(message.type == 1 ? "收到" : "发出") · \(message.timestamp)").font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 8).id(message.id)
                         .swipeActions(allowsFullSwipe: false) {
-                            Button("删除", role: .destructive) { deletingMessage = message }
+                            // Swipe then tap is the confirmation; no extra dialog for a single message.
+                            Button("删除", role: .destructive) { Task { await delete(message) } }
                                 .disabled(model.demo || !model.connected || deleting || sending || loading)
                         }
                 }
                 if !loading && error == nil { Text("显示最近 100 条；打开后同步已读状态。").font(.footnote).foregroundStyle(.secondary) }
             }.navigationTitle(contact.peer).navigationBarTitleDisplayMode(.inline).task { await load() }
-                .confirmationDialog("删除这条短信？", isPresented: Binding(get: { deletingMessage != nil }, set: { if !$0 { deletingMessage = nil } }), titleVisibility: .visible) {
-                    if let message = deletingMessage {
-                        Button("删除短信", role: .destructive) {
-                            Task {
-                                deleting = true
-                                defer { deleting = false }
-                                do {
-                                    try await model.deleteSMS(contact: contact, messageID: message.id)
-                                    messages.removeAll { $0.id == message.id }
-                                    await load()
-                                } catch { deletionError = error.localizedDescription }
-                            }
-                        }
-                    }
-                } message: { Text("将删除服务器中的这条历史短信，其他设备也会同步。无法撤销。") }
                 .alert("删除未完成", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
                     Button("好", role: .cancel) { deletionError = nil }
                 } message: { Text(deletionError ?? "") }
@@ -537,6 +544,16 @@ struct ThreadView: View {
             await load()
         }
         sending = false
+    }
+    private func delete(_ message: SMSMessage) async {
+        guard !deleting else { return }
+        deleting = true
+        defer { deleting = false }
+        do {
+            try await model.deleteSMS(contact: contact, messageID: message.id)
+            messages.removeAll { $0.id == message.id }
+            await load()
+        } catch { deletionError = error.localizedDescription }
     }
     private func load() async {
         loading = true; error = nil

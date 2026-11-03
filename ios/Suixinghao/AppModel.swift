@@ -1354,6 +1354,13 @@ final class AppModel {
     }
     #endif
     func messages(_ contact: SMSContact) async throws -> [SMSMessage] {
+        #if DEBUG
+        // Synthetic layout fixture for the verification-code copy button.
+        if demo, ProcessInfo.processInfo.arguments.contains("--preview-sms-code") {
+            return [.init(id: 1, content: "【示例】您的验证码为 482913，5分钟内有效，请勿泄露。", timestamp: "演示消息", type: 1),
+                    .init(id: 2, content: "收到，谢谢。", timestamp: "演示消息", type: 2)]
+        }
+        #endif
         if demo { return [.init(id: 1, content: contact.last_content, timestamp: "演示消息", type: 1)] }
         guard let base, connected else { throw APIError(message: "请先配置服务地址和鉴权 Key。") }
         let query = API.threadQuery(contact)
