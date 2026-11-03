@@ -53,6 +53,12 @@ import Foundation
             precondition(DialerInput.display(raw) == shown, "display \(raw)")
         }
         print("Dialer input: external handoff callback orders, cold start, call, pending and inactive transitions passed")
-        print("Dialer input: long-press plus, length limit, delete, paste cleaning and number grouping passed")
+        // Call-screen name lookup: whole number only, never a suffix.
+        for (x, y, same) in [("10086", "10086", true), ("10086", "13800010086", false), ("10086", "02110086", false),
+                             ("13800138000", "+86 138-0013-8000", true), ("13800138000", "008613800138000", true),
+                             ("13800138000", "3800138000", false), ("", "", false), ("02165529988", "2165529988", true)] {
+            precondition(DialerInput.sameNumber(x, y) == same, "same \(x) \(y)")
+        }
+        print("Dialer input: long-press plus, length limit, delete, paste cleaning, number grouping and whole-number name match passed")
     }
 }

@@ -56,6 +56,23 @@ struct DialerInput {
         return result
     }
 
+    /// Normalizes a number for exact comparison: drops +86/0086 and restores a dropped area-code 0.
+    static func comparableDigits(_ raw: String) -> String {
+        var digits = raw.filter(\.isNumber)
+        if digits.hasPrefix("0086") { digits = String(digits.dropFirst(4)) }
+        else if digits.hasPrefix("86") && digits.count >= 12 { digits = String(digits.dropFirst(2)) }
+        if digits.count >= 9 && digits.count <= 12 && !digits.hasPrefix("0") && !digits.hasPrefix("1") && !digits.hasPrefix("400") && !digits.hasPrefix("800") {
+            digits = "0" + digits
+        }
+        return digits
+    }
+
+    /// Whole-number match only; a number that merely ends with the dialed digits is a different number.
+    static func sameNumber(_ a: String, _ b: String) -> Bool {
+        let left = comparableDigits(a)
+        return !left.isEmpty && left == comparableDigits(b)
+    }
+
     /// Mainland mobile numbers read as 3-4-4 while typing; everything else is shown as typed.
     static func display(_ number: String) -> String {
         guard number.count > 3, number.first == "1", number.allSatisfy({ $0.isASCII && $0.isNumber }), number.count <= 11 else { return number }

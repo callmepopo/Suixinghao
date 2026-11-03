@@ -262,8 +262,7 @@ struct PhoneView: View {
         if let previewCall { return previewCall > 0 ? "布局测试" : "" }
         let dialed = model.callHistory.first(where: { $0.id == model.ownedCallID })?.number ?? lastDialed
         guard let dialed, !dialed.isEmpty else { return "随行号通话" }
-        let tail = String(dialed.filter(\.isNumber).suffix(11))
-        if tail.count >= 5, let contact = phoneContacts.first(where: { $0.number.filter(\.isNumber).hasSuffix(tail) }) {
+        if let contact = phoneContacts.first(where: { DialerInput.sameNumber($0.number, dialed) }) {
             return contact.name
         }
         return DialerInput.display(dialed)

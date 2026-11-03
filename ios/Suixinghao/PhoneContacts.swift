@@ -47,15 +47,7 @@ enum PhoneContacts {
         return status == .authorized || status == .limited
     }
 
-    private static func comparableDigits(_ raw: String) -> String {
-        var digits = raw.filter(\.isNumber)
-        if digits.hasPrefix("0086") { digits = String(digits.dropFirst(4)) }
-        else if digits.hasPrefix("86") && digits.count >= 12 { digits = String(digits.dropFirst(2)) }
-        if digits.count >= 9 && digits.count <= 12 && !digits.hasPrefix("0") && !digits.hasPrefix("1") && !digits.hasPrefix("400") && !digits.hasPrefix("800") {
-            digits = "0" + digits
-        }
-        return digits
-    }
+    private static func comparableDigits(_ raw: String) -> String { DialerInput.comparableDigits(raw) }
 
     static func name(matching number: String) async -> String? {
         let permission = CNContactStore.authorizationStatus(for: .contacts)
