@@ -419,7 +419,14 @@ struct MessagesView: View {
                             }.padding(.vertical, 8)
                         }
                         .swipeActions(allowsFullSwipe: false) {
-                            Button("删除会话", role: .destructive) { deletingContact = contact }
+                            Button("删除会话", role: .destructive) {
+                                // Present after the swipe actions finish closing; presenting during
+                                // the close animation dismissed the row-anchored dialog on device.
+                                Task { @MainActor in
+                                    try? await Task.sleep(for: .milliseconds(350))
+                                    deletingContact = contact
+                                }
+                            }
                                 .disabled(model.demo || !model.connected || deleting)
                         }
                         // Attached to the row so the dialog anchors next to the swiped conversation.
@@ -463,10 +470,15 @@ struct ThreadView: View {
     @State private var copiedMessageID: Int?
     @State private var deleting = false
     @State private var deletionError: String?
+    // Reply to any numeric sender; whether it is delivered is up to the carrier and recipient.
     private var replyDevice: String? {
         guard (try? API.normalizedSMSReplyNumber(contact.peer)) != nil else { return nil }
-        guard let id = contact.device_id, model.devices.contains(where: { $0.id == id }) else { return nil }
-        return id
+        return contact.device_id ?? model.devices.first?.id
+    }
+    private var replyBlockedReason: String {
+        (try? API.normalizedSMSReplyNumber(contact.peer)) == nil
+            ? "发送方不是电话号码（含字母或符号），短信无法回复。"
+            : "暂无在线 SIM，连接恢复后即可回复。"
     }
     var body: some View {
         ScrollViewReader { proxy in
@@ -511,7 +523,7 @@ struct ThreadView: View {
                     if !model.demo {
                         VStack(alignment: .leading, spacing: 4) {
                             if replyDevice == nil {
-                                Text("当前会话无法直接回复，请确认发送号码和在线 SIM。")
+                                Text(replyBlockedReason)
                                     .font(.caption2).foregroundStyle(.secondary)
                             } else if !replyStatus.isEmpty {
                                 Text(replyStatus).font(.caption2).foregroundStyle(.secondary)

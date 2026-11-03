@@ -12,6 +12,13 @@ import AVFoundation
         try check(try API.normalizedSMSReplyNumber("13800000000") == "+8613800000000", "手机号短信回复")
         do { _ = try API.normalizedSMSReplyNumber("10;AT"); throw APIError(message: "短信回复误收非法号码") }
         catch let e as APIError { try check(e.message != "短信回复误收非法号码", "短信回复拒绝非法号码") }
+        for sender in ["106901234567890", "01012345678", "95588", "+8613800000000", "12345678901234567890"] {
+            try check(try API.normalizedSMSReplyNumber(sender) == sender, "数字发送方均可回复")
+        }
+        for bad in ["Apple", "+86 138", "123456789012345678901", "12"] {
+            do { _ = try API.normalizedSMSReplyNumber(bad); throw APIError(message: "短信回复误收非法号码") }
+            catch let e as APIError { try check(e.message != "短信回复误收非法号码", "非数字或超长发送方不回复") }
+        }
         for short in ["110", "10086", "95347", "123456"] {
             try check(try API.normalizedDialNumber(short) == short, "短号拨号")
         }

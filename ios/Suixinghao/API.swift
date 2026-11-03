@@ -205,10 +205,13 @@ final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         if raw.range(of: "^\\+[1-9][0-9]{6,14}$", options: .regularExpression) != nil { return raw }
         throw APIError(message: "请输入 11 位国内手机号，或以 + 开头的完整国际号码。")
     }
+    /// Any numeric sender can be replied to (short codes, landlines, 106 service numbers…).
+    /// Only "+" and digits pass: the address is encoded into the module's SMS PDU.
     static func normalizedSMSReplyNumber(_ input: String) throws -> String {
         let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.range(of: "^[0-9]{3,6}$", options: .regularExpression) != nil { return raw }
-        return try normalizedNumber(raw)
+        if raw.range(of: "^1[0-9]{10}$", options: .regularExpression) != nil { return "+86" + raw }
+        if raw.range(of: "^\\+?[0-9]{3,20}$", options: .regularExpression) != nil { return raw }
+        throw APIError(message: "发送方不是电话号码（含字母或符号），短信无法回复。")
     }
     static func normalizedDialNumber(_ input: String) throws -> String {
         let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
