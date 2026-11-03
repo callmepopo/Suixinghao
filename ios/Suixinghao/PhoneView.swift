@@ -79,9 +79,9 @@ struct PhoneView: View {
         GeometryReader { viewport in
             let m = DialMetrics(size: viewport.size)
             VStack(spacing: 0) {
-                header.frame(height: DialMetrics.headerH)
+                header.frame(height: m.headerH)
                 numberRow(m).frame(height: m.numberH)
-                matches(m).frame(height: DialMetrics.rowH * 3)
+                matches(m).frame(height: m.rowH * 3)
                 DialKeypad(size: m.key, enabled: !model.callBusy,
                            onKey: { key in
                                if dialInput.append(key) { edited() }
@@ -89,9 +89,9 @@ struct PhoneView: View {
                            onLongZero: {
                                if dialInput.longPressZero() { edited() }
                            })
-                    .padding(.top, m.key * 0.16)
-                actionRow(m).padding(.top, m.key * 0.2)
-                notes.frame(height: DialMetrics.notesH, alignment: .top).padding(.top, 6)
+                    .padding(.top, m.keypadGap)
+                actionRow(m).padding(.top, m.actionGap)
+                notes.frame(height: m.notesH, alignment: .top).padding(.top, 6)
                 Spacer(minLength: 0)
             }
             .frame(width: m.width)
@@ -163,7 +163,7 @@ struct PhoneView: View {
                     Spacer()
                 }
                 .font(.subheadline).foregroundStyle(.teal)
-                .padding(.horizontal, 12).frame(height: DialMetrics.rowH)
+                .padding(.horizontal, 12).frame(height: m.rowH)
             } else {
                 ForEach(Array(contactMatches.enumerated()), id: \.element.id) { index, contact in
                     Button {
@@ -178,7 +178,7 @@ struct PhoneView: View {
                             Text(contact.number).foregroundStyle(.teal).lineLimit(1)
                         }
                         .font(.subheadline).padding(.horizontal, 12)
-                        .frame(height: DialMetrics.rowH).contentShape(Rectangle())
+                        .frame(height: m.rowH).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                     if index < contactMatches.count - 1 { Divider().padding(.leading, 12) }
                 }
@@ -238,14 +238,17 @@ struct PhoneView: View {
                         Text("其他客户端正在通话")
                         if let date = model.callStartedAt { Text(date, style: .timer).monospacedDigit() }
                     }.foregroundStyle(.orange)
-                } else {
-                    Text(model.demo ? "连接自己的服务后即可使用。演示模式不会拨号。" : (model.restoringConnection ? "正在恢复电话连接，短信将在随后加载。" : "连接恢复后即可拨号，已接通的通话可以熄屏继续。"))
-                        .foregroundStyle(.secondary)
+                } else if model.demo {
+                    Text("连接自己的服务后即可使用。演示模式不会拨号。").foregroundStyle(.secondary)
+                } else if model.restoringConnection {
+                    Text("正在恢复电话连接，短信将在随后加载。").foregroundStyle(.secondary)
                 }
             }
             .font(.footnote).lineLimit(1).minimumScaleFactor(0.7)
             #if DEBUG
-            Text(model.externalCallRoute).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            if model.externalCallRoute != "尚未收到系统号码事件" {
+                Text(model.externalCallRoute).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
             #endif
         }
         .multilineTextAlignment(.center)
@@ -325,23 +328,34 @@ struct PhoneView: View {
 /// iPhone sizes). Recomputed on every size change, so folding / unfolding relays out.
 struct DialMetrics {
     static let maxWidth: CGFloat = 393
-    static let headerH: CGFloat = 40
-    static let rowH: CGFloat = 36
-    static let notesH: CGFloat = 34
     let width: CGFloat
     let key: CGFloat
+    let headerH: CGFloat
     let numberH: CGFloat
     let numberFont: CGFloat
+    let rowH: CGFloat
+    let notesH: CGFloat
+    let keypadGap: CGFloat
+    let actionGap: CGFloat
 
     init(size: CGSize) {
+        // Short screens (iPhone SE: about 560pt between status bar and tab bar) tighten
+        // everything except the keypad, keeping the three fixed match rows.
+        let compact = size.height < 600
         width = max(0, min(size.width, Self.maxWidth) - 24)
-        numberH = size.height < 700 ? 48 : 56
-        numberFont = size.height < 700 ? 36 : 42
-        let fixed = Self.headerH + numberH + Self.rowH * 3 + Self.notesH + 6 + 20 + 12
-        // keypad 4.54k, gap above keypad 0.16k, gap above actions 0.2k, green button k.
-        let byHeight = (size.height - fixed) / (4.54 + 0.16 + 0.2 + 1)
+        headerH = compact ? 32 : 40
+        numberH = compact ? 40 : (size.height < 700 ? 48 : 56)
+        numberFont = compact ? 32 : (size.height < 700 ? 36 : 42)
+        rowH = compact ? 30 : 36
+        notesH = compact ? 18 : 22
+        let gapRatio: (CGFloat, CGFloat) = compact ? (0.1, 0.14) : (0.16, 0.2)
+        // Keypad 4.54k, gaps, green button k plus its 18pt label, notes and slack.
+        let fixed = headerH + numberH + rowH * 3 + notesH + 6 + 18 + (compact ? 4 : 14)
+        let byHeight = (size.height - fixed) / (4.54 + gapRatio.0 + gapRatio.1 + 1)
         let byWidth = width / 3.72
         key = max(50, min(80, byHeight, byWidth))
+        keypadGap = key * gapRatio.0
+        actionGap = key * gapRatio.1
     }
 }
 
