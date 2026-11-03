@@ -419,27 +419,9 @@ struct MessagesView: View {
                             }.padding(.vertical, 8)
                         }
                         .swipeActions(allowsFullSwipe: false) {
-                            Button("删除会话", role: .destructive) {
-                                // Present after the swipe actions finish closing; presenting during
-                                // the close animation dismissed the row-anchored dialog on device.
-                                Task { @MainActor in
-                                    try? await Task.sleep(for: .milliseconds(350))
-                                    deletingContact = contact
-                                }
-                            }
+                            Button("删除会话", role: .destructive) { deletingContact = contact }
                                 .disabled(model.demo || !model.connected || deleting)
                         }
-                        // Attached to the row so the dialog anchors next to the swiped conversation.
-                        .confirmationDialog("删除整个短信会话？", isPresented: Binding(get: { deletingContact?.id == contact.id }, set: { if !$0 { deletingContact = nil } }), titleVisibility: .visible) {
-                            Button("删除整个会话", role: .destructive) {
-                                Task {
-                                    deleting = true
-                                    defer { deleting = false }
-                                    do { try await model.deleteSMS(contact: contact) }
-                                    catch { deletionError = error.localizedDescription }
-                                }
-                            }
-                        } message: { Text("将删除服务器中该 SIM 与对方的全部历史短信（含未显示的消息），其他设备也会同步。无法撤销。") }
                     }
                 } footer: { Text("模块 SIM 的短信 · 与 iPhone 系统信息独立") }
             }.navigationTitle("短信").refreshable { await model.refresh() }
@@ -451,6 +433,20 @@ struct MessagesView: View {
                     if let first = model.visibleContacts.first { ThreadView(contact: first) }
                 }
                 #endif
+                // Centered alert on the stable page: row-attached dialogs were dismissed by
+                // List row updates on device (builds 64/65), and list-attached action sheets
+                // appeared at unpredictable positions.
+                .alert("删除整个短信会话？", isPresented: Binding(get: { deletingContact != nil }, set: { if !$0 { deletingContact = nil } }), presenting: deletingContact) { contact in
+                    Button("删除整个会话", role: .destructive) {
+                        Task {
+                            deleting = true
+                            defer { deleting = false }
+                            do { try await model.deleteSMS(contact: contact) }
+                            catch { deletionError = error.localizedDescription }
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: { _ in Text("将删除服务器中该 SIM 与对方的全部历史短信（含未显示的消息），其他设备也会同步。无法撤销。") }
                 .alert("删除未完成", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
                     Button("好", role: .cancel) { deletionError = nil }
                 } message: { Text(deletionError ?? "") }
