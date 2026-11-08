@@ -1,5 +1,9 @@
 # 变更记录
 
+## App 0.2.0/build74（TestFlight候选）
+
+- 与开发build73相同代码（iPad mini真机与15Pro回归经用户确认通过），仅递增构建号，打Production包上传TestFlight。
+
 ## App 0.2.0/build73（开发候选）：支持iPad
 
 - 同一App改为iPhone／iPad通用（Bundle ID不变）；iPad支持竖屏、横屏与分屏，拨号盘仍单列最宽393pt居中，iPad上下居中；标签栏为iPadOS顶部样式。iPad窗口最小375×640，避免拨号键被裁。
