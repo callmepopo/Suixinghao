@@ -1,5 +1,10 @@
 # 变更记录
 
+## App 0.1.14/build72（开发包，仅iPad mini）：iPad兼容模式基线
+
+- 与build70／71相同代码，仅递增构建号，开发签名并刷新描述文件以包含新登记的iPad mini测试机。App仍为iPhone专用，在iPad上以兼容模式运行，用于打通iPad安装链路并测量iPad适配前的通话质量基线；不代表iPad适配已实施。
+- 只USB安装到iPad mini，不装15Pro，不更新开发安装页，不上传TestFlight。
+
 ## App 0.1.14/build71（正式审核等待中）
 
 - 与开发build70相同代码（15Pro确认通过），仅递增构建号，打Production包上传TestFlight，只关联SE3内部组；替代build69（SE3反馈拨号键过小）。
