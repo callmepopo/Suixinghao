@@ -155,7 +155,7 @@ build66：build65延迟弹出后确认框仍自动消失，整会话删除确认
 
 ### 0.1.14拨号页与通话页（开发候选build67）
 
-拨号页（`Suixinghao/PhoneView.swift`）按iOS原生键盘排版，内容单列、最宽393pt居中，iPhone Duo内屏不拉伸；固定3行联系人匹配；底部“系统拨出／随行号拨出／删除”。号码为空时长按0输入“+”；按住删除键连续删除；按住号码区弹出系统复制／粘贴菜单（经系统菜单粘贴，不触发粘贴授权提示），粘贴清洗规则见 `DialerInput.sanitizedPaste`。通话页为深色原生样式，“结束”键固定在底部同一位置。按键与输入规则合成检查见 `scripts/dialer-input-check.swift`。Debug参数 `--preview-dialer=0…4`（匹配行数）、`--preview-call=1`（通话页）、`--preview-call=2`（通话中展开键盘）只显示演示数据。
+拨号页（`Suixinghao/PhoneView.swift`）按iOS原生键盘排版，内容单列、最宽393pt居中，iPhone Duo内屏不拉伸；固定3行联系人匹配；底部“系统拨出／随行号拨出／删除”。号码为空时长按0输入“+”；按住删除键连续删除；按住号码区弹出系统复制／粘贴菜单（经系统菜单粘贴，不触发粘贴授权提示），粘贴清洗规则见 `DialerInput.sanitizedPaste`。通话页为深色原生样式，“结束”键固定在底部同一位置。按键与输入规则合成检查见 `scripts/dialer-input-check.swift`。iPad（0.2.0起）同一布局：竖屏、横屏、分屏均为单列居中，iPad上下居中；隐藏“系统拨出”、声音设备无听筒、不发手表镜像提醒，判断集中在 `Suixinghao/DeviceTraits.swift`；尺寸计算在 `Suixinghao/DialMetrics.swift`，由 `scripts/dialer-layout-check.swift` 覆盖iPhone与iPad各尺寸。Debug参数 `--preview-dialer=0…4`（匹配行数）、`--preview-call=1`（通话页）、`--preview-call=2`（通话中展开键盘）只显示演示数据。
 
 build68：通话页人名改为整号比对（`DialerInput.sameNumber`，与来电识别同一规则），修复build67拨打10086时显示号码以10086结尾的联系人。
 

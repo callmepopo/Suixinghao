@@ -17,7 +17,15 @@ struct RootView: View {
             SettingsView().tag(2).tabItem { Label("设置", systemImage: "slider.horizontal.3") }
         }
         .tint(.teal)
-        .task { await model.startup() }
+        .task {
+            // iPad windows resize freely; below this size the dialer would clip its call button.
+            if DeviceTraits.isPad {
+                for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                    scene.sizeRestrictions?.minimumSize = DialMetrics.minimumPadWindow
+                }
+            }
+            await model.startup()
+        }
         .onChange(of: phase) { _, value in
             if value == .active { Task { await model.foreground(true) } }
             else if value == .background {
@@ -129,7 +137,7 @@ struct MessagesView: View {
                                 .disabled(model.demo || !model.connected || deleting)
                         }
                     }
-                } footer: { Text("模块 SIM 的短信 · 与 iPhone 系统信息独立") }
+                } footer: { Text("模块 SIM 的短信 · 与 \(DeviceTraits.name) 系统信息独立") }
             }.navigationTitle("短信").refreshable { await model.refresh() }
                 .toolbar { Button { composing = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新建短信").disabled(model.demo || model.busy) }
                 .sheet(isPresented: $composing) { ComposeView() }

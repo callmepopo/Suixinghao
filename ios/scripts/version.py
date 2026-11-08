@@ -46,17 +46,24 @@ if __name__ == "__main__":
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--next", action="store_true", help="Advance this component's patch version and build")
     action.add_argument("--build-only", action="store_true", help="Reserve a new build of the same product version")
+    action.add_argument("--set", metavar="X.Y.Z", help="Move to a higher product version (e.g. a minor or major release) and advance the build")
     args = parser.parse_args()
     metadata = read(args.module)
-    if args.next or args.build_only:
+    if args.next or args.build_only or args.set:
         if metadata["build"] >= 9999:
             raise ValueError("Build counter limit reached")
         source = config(args.module).read_text()
-        if args.next:
+        if args.next or args.set:
             if not re.fullmatch(r"\d+\.\d+\.\d+", metadata["version"]):
                 raise ValueError("Migrate historical date versions explicitly before advancing")
             major, minor, patch = map(int, metadata["version"].split("."))
             version = f"{major}.{minor}.{patch+1}"
+            if args.set:
+                if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", args.set):
+                    raise ValueError("--set needs a semantic version X.Y.Z")
+                if tuple(map(int, args.set.split("."))) <= (major, minor, patch):
+                    raise ValueError("--set must be higher than the current version")
+                version = args.set
             for key in ["SXH_RELEASE_VERSION", "MARKETING_VERSION"]:
                 source = re.sub(rf"^({key}\s*=).*", rf"\g<1> {version}", source, flags=re.M)
         source = re.sub(r"^(CURRENT_PROJECT_VERSION\s*=).*", rf"\g<1> {metadata['build'] + 1}", source, flags=re.M)

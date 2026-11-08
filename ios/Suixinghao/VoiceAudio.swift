@@ -13,6 +13,10 @@ struct CallAudioRoute: Identifiable, Equatable {
 @MainActor
 final class VoiceAudio {
     let outgoing = PCMFrames()
+    /// False on iPad (no earpiece): the receiver is never listed or selectable, and the
+    /// non-override output there is the built-in speaker. iPhone keeps receiver/speaker.
+    let hasReceiver: Bool
+    init(hasReceiver: Bool = true) { self.hasReceiver = hasReceiver }
     private var engine: AVAudioEngine?
     /// Test tone only; call audio plays through `source` from the jitter buffer.
     private var player: AVAudioPlayerNode?
@@ -213,8 +217,8 @@ final class VoiceAudio {
         let session = AVAudioSession.sharedInstance()
         let output = session.currentRoute.outputs.first
         onSpeakerChanged?(output?.portType == .builtInSpeaker)
-        var routes = [CallAudioRoute(id: CallAudioRoute.receiver, name: "iPhone 听筒", symbol: "iphone"),
-                      CallAudioRoute(id: CallAudioRoute.speaker, name: "扬声器", symbol: "speaker.wave.3.fill")]
+        var routes = hasReceiver ? [CallAudioRoute(id: CallAudioRoute.receiver, name: "iPhone 听筒", symbol: "iphone")] : []
+        routes.append(CallAudioRoute(id: CallAudioRoute.speaker, name: "扬声器", symbol: "speaker.wave.3.fill"))
         let live = (session.availableInputs ?? []).filter { Self.externalInputs.contains($0.portType) }
             .map { CallAudioRoute(id: "device:" + $0.uid, name: $0.portName, symbol: "headphones") }
         // While phoneOnly hides Bluetooth, keep the devices seen earlier in this call selectable.
@@ -267,7 +271,7 @@ final class VoiceAudio {
     }
     private static let externalInputs: Set<AVAudioSession.Port> = [.bluetoothHFP, .carAudio, .headsetMic, .usbAudio]
     func setSpeaker(_ enabled: Bool) throws {
-        try selectRoute(enabled ? CallAudioRoute.speaker : CallAudioRoute.receiver)
+        try selectRoute(enabled || !hasReceiver ? CallAudioRoute.speaker : CallAudioRoute.receiver)
     }
     private static func outputIsExternal(_ session: AVAudioSession) -> Bool {
         guard let port = session.currentRoute.outputs.first?.portType else { return false }
@@ -285,6 +289,7 @@ final class VoiceAudio {
         if id == CallAudioRoute.speaker {
             try session.overrideOutputAudioPort(.speaker)
         } else if id == CallAudioRoute.receiver {
+            guard hasReceiver else { throw APIError(message: "此设备没有听筒，请选择扬声器或蓝牙设备。") }
             guard let mic = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) else {
                 throw APIError(message: "听筒暂不可用，请选择其他声音设备。")
             }

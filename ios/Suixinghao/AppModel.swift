@@ -85,7 +85,7 @@ final class AppModel {
     #if DEBUG
     var audioDiagnostics = "音频：等待连接"
     #endif
-    @ObservationIgnored private let audio = VoiceAudio()
+    @ObservationIgnored private let audio = VoiceAudio(hasReceiver: DeviceTraits.hasReceiver)
     @ObservationIgnored private let transport = VoiceTransport()
     @ObservationIgnored private var voip: VoIPCalls?
     @ObservationIgnored private var smsPushToken: String?
@@ -699,7 +699,7 @@ final class AppModel {
                 UIApplication.shared.registerForRemoteNotifications()
                 await registerSMSPushToken()
             } else {
-                smsNotificationState = "未授权；请在 iPhone 设置中允许通知"
+                smsNotificationState = "未授权；请在 \(DeviceTraits.name) 设置中允许通知"
             }
         } catch {
             smsNotificationState = "通知授权失败，请稍后重试"

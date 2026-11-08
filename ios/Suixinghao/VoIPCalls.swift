@@ -108,6 +108,8 @@ final class VoIPCalls: NSObject, @preconcurrency PKPushRegistryDelegate, @precon
     }
 
     private func startReminder(id: String, uuid: UUID) {
+        // The reminder exists for Apple Watch mirroring ("请在 iPhone 上接听"); iPad has no Watch.
+        guard DeviceTraits.mirrorsCallsToWatch else { return }
         guard session.contains(uuid), session.call?.waitingForAudio == false,
               session.call?.mediaStarted == false else { return }
         reminderTask?.cancel()

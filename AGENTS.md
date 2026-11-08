@@ -10,7 +10,7 @@
 - 只改README、文档、AGENTS.md或整理材料，不升级产品版本，不递增Apple构建号，不重建软件。
 - 同一App发布版本从开发测试到TestFlight／App Store保持同一产品版本；每次新构建的Apple内部构建号单独递增，不能复用已上传构建号。源码、签名与产物证据仍分别记录。
 - 手机关于页分别显示“App版本”和“服务端版本”。GitHub是源码来源、App Store是安装渠道，不作为额外产品版本；GitHub发布说明明确对应的App／服务端版本与源码提交。
-- 每个组件的版本值各自保持单一权威来源：App为根Version.xcconfig，服务为server/Version.xcconfig。`python3 ios/scripts/version.py --module ios --next`或`--module server --next`只升级选定组件；同App版本新构建用`--module ios --build-only`。禁止手改多份副本或全局同步递增。
+- 每个组件的版本值各自保持单一权威来源：App为根Version.xcconfig，服务为server/Version.xcconfig。`python3 ios/scripts/version.py --module ios --next`或`--module server --next`只升级选定组件；同App版本新构建用`--module ios --build-only`；次版本／主版本（如0.2.0）用`--module ios --set X.Y.Z`，须高于当前版本并同时递增构建号。禁止手改多份副本或全局同步递增。
 - 运行状态与本地验收写仓库外维护日志，不以文档批次给旧产物重贴版本。
 
 ## 其他工程边界

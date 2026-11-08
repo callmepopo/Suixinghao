@@ -1,5 +1,12 @@
 # 变更记录
 
+## App 0.2.0/build73（开发候选）：支持iPad
+
+- 同一App改为iPhone／iPad通用（Bundle ID不变）；iPad支持竖屏、横屏与分屏，拨号盘仍单列最宽393pt居中，iPad上下居中；标签栏为iPadOS顶部样式。iPad窗口最小375×640，避免拨号键被裁。
+- iPad与iPhone仅四项差异：隐藏“系统拨出”（原位置留空，随行号拨出居中）；声音设备不列出／不可选听筒，关闭免提回到扬声器；不发送给手表镜像的“请在 iPhone 上接听”提醒；界面中明确的“iPhone”字样按设备显示。iPhone行为不变。
+- 拨号盘尺寸计算拆为`DialMetrics.swift`并新增`dialer-layout-check.swift`（iPhone SE／15 Pro及iPad mini／Air／Pro竖横屏、半屏、最小窗口10项）；声音路由合成检查新增iPad无听筒场景；版本工具新增`--set X.Y.Z`。
+- 验证：iOS完整检查、模拟器构建通过；iPad mini／Air／Pro模拟器竖屏截图核对（新版iPadOS窗口模式不允许程序旋转，横屏以尺寸检查及真机确认）。服务端不变。
+
 ## App 0.1.14/build72（开发包，仅iPad mini）：iPad兼容模式基线
 
 - 与build70／71相同代码，仅递增构建号，开发签名并刷新描述文件以包含新登记的iPad mini测试机。App仍为iPhone专用，在iPad上以兼容模式运行，用于打通iPad安装链路并测量iPad适配前的通话质量基线；不代表iPad适配已实施。

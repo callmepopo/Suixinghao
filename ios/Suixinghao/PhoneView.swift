@@ -3,7 +3,9 @@ import UIKit
 
 /// Dialer tab. Follows the native Phone keypad: status, number, three fixed contact-match
 /// rows, keypad, then "系统拨出 / 随行号拨出 / 删除". Content is a single column capped at
-/// iPhone width, so the iPhone Duo inner screen shows the same keypad centered, not stretched.
+/// iPhone width, so the iPhone Duo inner screen and iPad (portrait, landscape, split view)
+/// show the same keypad centered, not stretched. iPad cannot place cellular calls, so
+/// "系统拨出" is replaced by an empty slot and "随行号拨出" stays centered.
 /// Only the presentation changed; dialing, DTMF, hang-up and audio rules live in AppModel.
 struct PhoneView: View {
     @Environment(AppModel.self) private var model
@@ -79,6 +81,9 @@ struct PhoneView: View {
         GeometryReader { viewport in
             let m = DialMetrics(size: viewport.size)
             VStack(spacing: 0) {
+                // iPad screens are much taller than the capped keypad: center it vertically
+                // instead of leaving the lower third empty. iPhone keeps the top alignment.
+                if DeviceTraits.isPad { Spacer(minLength: 0) }
                 header.frame(height: m.headerH)
                 numberRow(m).frame(height: m.numberH)
                 matches(m).frame(height: m.rowH * 3)
@@ -193,18 +198,22 @@ struct PhoneView: View {
             || number.isEmpty || !model.statusFresh || model.status?.hasCall == true
         let systemOff = model.callBusy || handingOffSystemCall || number.isEmpty || model.status?.hasCall == true
         return HStack(alignment: .bottom, spacing: gap) {
-            Button { Task { await dialWithSystem() } } label: {
-                VStack(spacing: 5) {
-                    Image(systemName: "iphone")
-                        .font(.system(size: m.key * 0.3, weight: .regular))
-                        .foregroundStyle(.primary)
-                        .frame(width: m.key * 0.78, height: m.key * 0.78)
-                        .background(Circle().fill(Color(.systemGray5)))
-                    Text("系统拨出").font(.footnote.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            if DeviceTraits.canPlaceCellularCalls {
+                Button { Task { await dialWithSystem() } } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: "iphone")
+                            .font(.system(size: m.key * 0.3, weight: .regular))
+                            .foregroundStyle(.primary)
+                            .frame(width: m.key * 0.78, height: m.key * 0.78)
+                            .background(Circle().fill(Color(.systemGray5)))
+                        Text("系统拨出").font(.footnote.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    }
+                    .frame(width: m.key).contentShape(Rectangle())
                 }
-                .frame(width: m.key).contentShape(Rectangle())
+                .buttonStyle(.plain).disabled(systemOff).opacity(systemOff ? 0.4 : 1)
+            } else {
+                Color.clear.frame(width: m.key, height: 1).accessibilityHidden(true)
             }
-            .buttonStyle(.plain).disabled(systemOff).opacity(systemOff ? 0.4 : 1)
             Button {
                 lastDialed = number
                 Task { await model.dial(number) }
@@ -321,41 +330,6 @@ struct PhoneView: View {
         guard PhoneContacts.canRead else { phoneContacts = []; contactMatches = []; return }
         phoneContacts = (try? await PhoneContacts.load()) ?? []
         updateMatches()
-    }
-}
-
-/// Sizes for the dialer, derived from the space actually given (outer / inner Duo screen,
-/// iPhone sizes). Recomputed on every size change, so folding / unfolding relays out.
-struct DialMetrics {
-    static let maxWidth: CGFloat = 393
-    let width: CGFloat
-    let key: CGFloat
-    let headerH: CGFloat
-    let numberH: CGFloat
-    let numberFont: CGFloat
-    let rowH: CGFloat
-    let notesH: CGFloat
-    let keypadGap: CGFloat
-    let actionGap: CGFloat
-
-    init(size: CGSize) {
-        // Short screens (iPhone SE: about 560pt between status bar and tab bar) tighten
-        // everything except the keypad, keeping the three fixed match rows.
-        let compact = size.height < 600
-        width = max(0, min(size.width, Self.maxWidth) - 24)
-        headerH = compact ? 32 : 40
-        numberH = compact ? 40 : (size.height < 700 ? 48 : 56)
-        numberFont = compact ? 32 : (size.height < 700 ? 36 : 42)
-        rowH = compact ? 30 : 36
-        notesH = compact ? 18 : 22
-        let gapRatio: (CGFloat, CGFloat) = compact ? (0.1, 0.14) : (0.16, 0.2)
-        // Keypad 4.54k, gaps, green button k plus its 18pt label, notes and slack.
-        let fixed = headerH + numberH + rowH * 3 + notesH + 6 + 18 + (compact ? 4 : 14)
-        let byHeight = (size.height - fixed) / (4.54 + gapRatio.0 + gapRatio.1 + 1)
-        let byWidth = width / 3.72
-        key = max(50, min(80, byHeight, byWidth))
-        keypadGap = key * gapRatio.0
-        actionGap = key * gapRatio.1
     }
 }
 

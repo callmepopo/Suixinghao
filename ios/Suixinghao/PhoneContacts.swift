@@ -29,7 +29,7 @@ struct PhoneContact: Identifiable, Sendable {
 
 enum PhoneContactsError: LocalizedError {
     case denied
-    var errorDescription: String? { "未获得通讯录权限。可在 iPhone 设置中允许「随行号」访问通讯录。" }
+    var errorDescription: String? { "未获得通讯录权限。可在系统设置中允许「随行号」访问通讯录。" }
 }
 
 enum PhoneContacts {

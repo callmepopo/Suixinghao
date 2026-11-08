@@ -20,7 +20,7 @@
 > 本节是现行做法；后文带日期的段落是历史记录，只用于追溯。
 
 1. **开发**：在 develop 改代码，运行 `ios/scripts/check.sh`（及服务端 `go test`）与模拟器构建。
-2. **升号**：App 新功能／修复用 `python3 ios/scripts/version.py --module ios --next`；同版本重打用 `--build-only`；服务端用 `--module server`。纯文档不升号。提交 develop，源码须干净。
+2. **升号**：App 新功能／修复用 `python3 ios/scripts/version.py --module ios --next`；明显新能力升次版本用 `--set X.Y.Z`（如0.2.0支持iPad）；同版本重打用 `--build-only`；服务端用 `--module server`。纯文档不升号。提交 develop，源码须干净。
 3. **15Pro 开发包**：维护者私有发布工具一次完成开发签名打包、同身份／签名／设备覆盖核验、USB 覆盖安装读回，以及既有 Safari 开发安装页更新（先备份、核验失败自动恢复）。工具和签名资料不在本仓库。
 4. **SE3 内部 TestFlight**：15Pro 用户确认通过后，同一干净提交 `--build-only` 打 Production 包上传，只关联 SE3 内部组（需当轮授权）。
 5. **外部测试与 GitHub**：SE3 通过后合入 main、同步 GitHub，同一构建提交外部 Beta 审核（需当轮授权）；App Store 正式审核另行确认。

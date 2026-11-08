@@ -43,6 +43,8 @@ final class AVAudioSession {
     let ioBufferDuration = 0.02, inputLatency = 0.002, outputLatency = 0.004
     var preferred: PortDescription?
     var speakerOverride = false
+    /// iPad has no earpiece: with no override and no Bluetooth, calls play on the speaker.
+    var receiverPresent = true
     var categoryChanges = 0, overrides = 0, preferredRequests = 0
     var startFailures = 0
     /// Real VPIO (15Pro build56/57 logs): the engine keeps running across a device switch
@@ -69,8 +71,10 @@ final class AVAudioSession {
         } else if let anyHFP {
             // iOS 27 (15Pro log): preferring the built-in mic moves only the input; output stays on AirPods.
             currentRoute = Route(inputs: [Self.mic], outputs: [anyHFP])
-        } else {
+        } else if receiverPresent {
             currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "rcv", portType: .builtInReceiver, portName: "Receiver")])
+        } else {
+            currentRoute = Route(inputs: [Self.mic], outputs: [.init(uid: "spk", portType: .builtInSpeaker, portName: "Speaker")])
         }
         hardwareRate = currentRoute.inputs.first?.portType == .bluetoothHFP ? 16000 : 48000
         if before != currentRoute.outputs.first?.portType, let engine = AVAudioEngine.latest, engine.isRunning, !keepsRunning { engine.configurationChanged() }
@@ -281,6 +285,31 @@ final class AVAudioEngine: NSObject, @unchecked Sendable {
         try audio.selectRoute("receiver"); await settle()
         precondition(selected == "receiver" && audio.isEngineRunning && routes.count == 2)
         audio.stop()
-        print("通过：AirPods↔扬声器↔听筒六向切换、显示按实际输出、保持同一引擎与静音、采音按新格式重装、语音处理下引擎不停时换麦克风或出声设备即重建、拔出AirPods不挂断、中断恢复、启动失败重试与只提示不挂断、新旧通话隔离、无蓝牙听筒↔扬声器（模拟，未证明真机声音）")
+        // iPad (no earpiece): receiver never listed or selectable; AirPods↔speaker works and
+        // removing AirPods falls back to the speaker without ending the call.
+        session.receiverPresent = false
+        session.speakerOverride = false; session.preferred = nil
+        session.availableInputs = [AVAudioSession.mic, AVAudioSession.pods]; session.apply(.unknown)
+        let pad = VoiceAudio(hasReceiver: false)
+        var padRoutes: [CallAudioRoute] = [], padSelected = "", padMessage: String? = nil
+        pad.onAudioStatusChanged = { padMessage = $0 }
+        pad.onRoutesChanged = { padRoutes = $0; padSelected = $1; _ = $2 }
+        try await pad.start(callKitManaged: true)
+        pad.setActiveCall(true)
+        precondition(padSelected == pods && padRoutes.map(\.id) == ["speaker", pods], "iPad lists no receiver")
+        try pad.selectRoute("speaker"); await settle()
+        precondition(padSelected == "speaker" && pad.isEngineRunning && padMessage == nil, "iPad AirPods→扬声器")
+        try pad.selectRoute(pods); await settle()
+        precondition(padSelected == pods && pad.isEngineRunning, "iPad 扬声器→AirPods")
+        do { try pad.selectRoute("receiver"); preconditionFailure("iPad accepted receiver") } catch {}
+        precondition(padSelected == pods && pad.isEngineRunning && pad.isActiveCall, "rejected receiver keeps the call")
+        try pad.setSpeaker(false); await settle()
+        precondition(padSelected == "speaker", "iPad speaker-off has no receiver to go to")
+        try pad.selectRoute(pods); await settle()
+        session.disconnectPods(); await settle()
+        precondition(padSelected == "speaker" && padRoutes.map(\.id) == ["speaker"] && pad.isEngineRunning && pad.isActiveCall, "iPad pods removed → speaker")
+        pad.stop()
+        session.receiverPresent = true
+        print("通过：AirPods↔扬声器↔听筒六向切换、显示按实际输出、保持同一引擎与静音、采音按新格式重装、语音处理下引擎不停时换麦克风或出声设备即重建、拔出AirPods不挂断、中断恢复、启动失败重试与只提示不挂断、新旧通话隔离、无蓝牙听筒↔扬声器、iPad无听筒（不列出／不可选，AirPods↔扬声器，拔出回落扬声器）（模拟，未证明真机声音）")
     }
 }
