@@ -29,11 +29,12 @@
 
 | 顺序 | 设备／人群 | 包与安装方式 | 苹果审核 | 推送线路 | 连接的NAS |
 |---|---|---|---|---|---|
-| 1 | 15Pro（维护者） | 开发签名包，既有Safari开发安装页 | 不需要 | Sandbox中继，维护者个人授权 | 维护者NAS |
+| 1 | 15Pro与iPad mini（维护者） | 开发签名包，USB安装或既有Safari开发安装页 | 不需要 | Sandbox中继，维护者个人授权 | 维护者NAS |
 | 2 | SE3（维护者） | 正式Production包，TestFlight内部测试组 | 不需要，Apple处理为VALID即可安装 | Production中继，与网友同一线路 | 维护者NAS |
 | 3 | 网友测试组 | 与第2步同一正式构建，TestFlight外部测试组 | 需要Beta审核，批准后才更新 | Production中继 | 网友各自NAS及中继授权 |
 
 - 按1→2→3推进，上一步用户确认通过后才进入下一步；未确认的结果不记通过。
+- 设备分工（2026-11-08起）：iPhone 15Pro与iPad mini只参加第1步开发包测试；SE3只参加第2步内部TestFlight；iPad不加入TestFlight内部或外部组，App Store正式版上线后改装正式版，iPad的Production线路以正式版实测为准。内部组测试资格按接受邀请时TestFlight登录的Apple ID绑定（当前绑定SE3所用账号），与名单邮箱不必相同。
 - 第1步通过后，从同一干净提交用`--module ios --build-only`递增构建号，打Production包上传内部TestFlight，只关联SE3内部组。SE3不安装开发包，以免Production线路无手机覆盖。
 - 第2步通过后，按本文件合入main、同步GitHub，再将同一构建关联外部组并提交Beta审核；不重新打包。新产品版本的首个外部构建按需审核。
 - 第3步先同步main／develop源码与候选标签，带服务安装包的GitHub Release在外部审核批准后再发布，避免网友先升级服务、App仍未更新；服务端须保持兼容上一外部App构建。
