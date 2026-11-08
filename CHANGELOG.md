@@ -1,8 +1,9 @@
 # 变更记录
 
-## App 0.1.14/build71（SE3内部TestFlight候选）
+## App 0.1.14/build71（正式审核等待中）
 
 - 与开发build70相同代码（15Pro确认通过），仅递增构建号，打Production包上传TestFlight，只关联SE3内部组；替代build69（SE3反馈拨号键过小）。
+- 后续SE3用户确认通过；2026-11-06核验外部TestFlight为IN_BETA_TESTING。同日按用户授权提交同一build71正式审核，Apple版本及审核单均WAITING_FOR_REVIEW，通过后自动发布；尚未正式上架，不重建或改变原来源e28826c。
 
 ## App 0.1.14/build70（开发候选）：小屏拨号键放大、去掉常驻提示
 
