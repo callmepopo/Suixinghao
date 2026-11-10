@@ -2,6 +2,8 @@
 
 ## App 0.2.0/build74（TestFlight候选）
 
+- 2026-11-10：外部TestFlight审核通过（IN_BETA_TESTING），网友可下载；正式商店未提交。
+
 - 与开发build73相同代码（iPad mini真机与15Pro回归经用户确认通过），仅递增构建号，打Production包上传TestFlight。
 
 ## App 0.2.0/build73（开发候选）：支持iPad

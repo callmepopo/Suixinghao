@@ -232,7 +232,7 @@ iPhone Duo：外屏按系统右侧竖栏布局；内屏与外屏同一单列拨�
 
 ## App 0.2.0：iPad适配
 
-**状态（2026-11-08）：已实施。** 开发build73：自动检查、模拟器构建与竖屏截图通过，用户确认iPad mini真机（竖横屏／分屏、拨号与声音切换、锁屏来电）及15Pro回归通过（整体）。Production build74：SE3内部TestFlight用户确认通过；同一构建已提交外部Beta审核。iPad的Production线路（TestFlight）尚未实测，iPad TestFlight未显示该构建待复查。 用户决定以次版本0.2.0标记支持iPad。适配前基线：iPhone专用App 0.1.14/build72以兼容模式装iPad mini，用户确认连接、呼出、解锁与锁屏来电接听、历史短信可见，扬声器外放回声不明显（主观）。
+**状态（2026-11-10）：已实施，外部TestFlight已发布。** 开发build73：自动检查、模拟器构建与竖屏截图通过，用户确认iPad mini真机（竖横屏／分屏、拨号与声音切换、锁屏来电）及15Pro回归通过（整体）。Production build74：SE3内部TestFlight用户确认通过；同一构建外部Beta审核已通过（2026-11-10读回APPROVED、IN_BETA_TESTING），网友已可下载；iPad mini已经外部TestFlight装上build74，iPad的Production线路尚未报告实测，不记通过。 用户决定以次版本0.2.0标记支持iPad。适配前基线：iPhone专用App 0.1.14/build72以兼容模式装iPad mini，用户确认连接、呼出、解锁与锁屏来电接听、历史短信可见，扬声器外放回声不明显（主观）。
 
 身份与范围：同一App改为iPhone／iPad通用，Bundle ID保持com.junpo.suixinghao，不新建App ID，沿用现有App Key、VoIP推送、TestFlight与商店条目。iPad mini／Air／Pro用同一套自适应布局，不按机型分别实现。不改服务端、中继和模块硬件，服务端不升号；App按版本规则升级。正式商店一旦上架iPad支持不能撤回，提交商店审核前另行确认；TestFlight阶段不受此限制。
 
