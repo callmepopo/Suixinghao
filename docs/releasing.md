@@ -1,6 +1,6 @@
 # 日常测试、正式发布与源码追溯
 
-> 状态核验（2026-11-10）：App 0.1.14/build71已上架（READY_FOR_SALE）。App 0.2.0/build74（支持iPad，来源c8f4a1c、候选标签app-v0.2.0-rc-build74）外部TestFlight审核通过（APPROVED、IN_BETA_TESTING），网友已可下载；GitHub Release app-v0.2.0待发布，0.2.0正式商店审核另行确认（上架iPad后不可撤回）。
+> 状态核验（2026-11-10）：App 0.1.14/build71已上架（READY_FOR_SALE）。App 0.2.0/build74（支持iPad，来源c8f4a1c、候选标签app-v0.2.0-rc-build74）外部TestFlight审核通过（APPROVED、IN_BETA_TESTING），网友已可下载；同日发布GitHub Release app-v0.1.14（Latest，来源e28826c）与app-v0.2.0（prerelease，来源c8f4a1c），均不附服务包；0.2.0正式商店审核另行确认（上架iPad后不可撤回）。
 
 > 已发布核验（2026-10-28）：App 0.1.13/build63的正式审核已完成，商店可下载；与原TestFlight正式构建相同，来源5c7b3ab。状态文档更新不改变原标签、构建号或产物来源。
 
