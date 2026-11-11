@@ -15,7 +15,21 @@ struct PhoneDiagnostics: Decodable {
     let sim_status: String
     let network_status: String
     let signal_rssi: Int?
+    var signal_sinr: Int? = nil
     let network_checked_at: String?
+}
+/// Module signal cleanliness (SINR, dB): it decides whether the other side hears
+/// stutter. CSQ x/31 is total received power and rises with noise, so it is not shown.
+enum SignalQuality {
+    static func grade(_ sinr: Int) -> String {
+        switch sinr {
+        case 10...: "好"
+        case 5..<10: "可用"
+        case 0..<5: "偏弱"
+        default: "差"
+        }
+    }
+    static func text(_ sinr: Int) -> String { "\(grade(sinr))（SINR \(sinr > 0 ? "+" : "")\(sinr) dB）" }
 }
 struct CallStatus: Decodable {
     let state: String

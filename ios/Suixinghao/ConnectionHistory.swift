@@ -9,6 +9,7 @@ struct ConnectionEvent: Codable, Identifiable, Sendable {
     let state: String
     let reason: String
     var rssi: Int? = nil
+    var sinr: Int? = nil
     var date: Date { Date(timeIntervalSince1970: at) }
     var title: String {
         switch kind {
@@ -37,6 +38,8 @@ struct ConnectionSummary: Codable, Identifiable, Sendable {
     let coverage: Double
     let online_rate: Double?
     let interruptions: Int
+    var sinr_median: Int? = nil
+    var sinr_samples: Int? = nil
     var id: String { layer }
     var title: String { ["phone":"手机 → 服务", "module":"服务 → 模块", "network":"模块蜂窝网络"][layer] ?? layer }
     var rateText: String { online_rate.map { String(format: "%.1f%%", $0 * 100) } ?? "暂无有效检测" }

@@ -23,14 +23,17 @@ type diagnosticView struct {
 	SIMStatus        string `json:"sim_status"`
 	NetworkStatus    string `json:"network_status"`
 	SignalRSSI       *int   `json:"signal_rssi,omitempty"`
+	SignalSINR       *int   `json:"signal_sinr,omitempty"`
+	SignalRSRP       *int   `json:"signal_rsrp,omitempty"`
 	NetworkCheckedAt string `json:"network_checked_at,omitempty"`
 }
 
 var diagnosticCache = struct {
 	sync.Mutex
-	view  diagnosticView
-	next  time.Time
-	phase int
+	view   diagnosticView
+	next   time.Time
+	phase  int
+	noQCSQ bool
 }{view: diagnosticView{SIMStatus: "待检测", NetworkStatus: "待检测"}}
 
 var registrationPattern = regexp.MustCompile(`(?m)\+CEREG:\s*\d+,\s*(\d+)`)
@@ -46,7 +49,16 @@ func sampleNetworkIdle() {
 	if time.Now().Before(diagnosticCache.next) {
 		return
 	}
-	commands := []string{"AT+CPIN?", "AT+CEREG?", "AT+CSQ"}
+	// AT+QCSQ also reports SINR (signal cleanliness), which decides call quality;
+	// CSQ is total received power and rises with noise. Fall back to CSQ once
+	// a module rejects QCSQ, still one command per tick.
+	diagnosticCache.Lock()
+	signalCommand := "AT+QCSQ"
+	if diagnosticCache.noQCSQ {
+		signalCommand = "AT+CSQ"
+	}
+	diagnosticCache.Unlock()
+	commands := []string{"AT+CPIN?", "AT+CEREG?", signalCommand}
 	phase := diagnosticCache.phase
 	response, err := phoneAT("", commands[phase])
 	diagnosticCache.Lock()
@@ -55,6 +67,8 @@ func sampleNetworkIdle() {
 		diagnosticCache.view.SIMStatus = "待检测"
 		diagnosticCache.view.NetworkStatus = "待检测"
 		diagnosticCache.view.SignalRSSI = nil
+		diagnosticCache.view.SignalSINR = nil
+		diagnosticCache.view.SignalRSRP = nil
 	}
 	if err == nil {
 		switch phase {
@@ -70,7 +84,12 @@ func sampleNetworkIdle() {
 				}
 			}
 		case 2:
-			if m := signalPattern.FindStringSubmatch(response); len(m) > 1 {
+			if signalCommand == "AT+QCSQ" {
+				if v := parseQCSQ(response); v != nil {
+					diagnosticCache.view.SignalSINR, diagnosticCache.view.SignalRSRP = v.SINR, v.RSRP
+					diagnosticCache.view.SignalRSSI = csqFromRSSI(v.RSSI)
+				}
+			} else if m := signalPattern.FindStringSubmatch(response); len(m) > 1 {
 				n, _ := strconv.Atoi(m[1])
 				if n >= 0 && n <= 31 {
 					diagnosticCache.view.SignalRSSI = &n
@@ -78,11 +97,27 @@ func sampleNetworkIdle() {
 			}
 		}
 	}
+	if phase == 2 && signalCommand == "AT+QCSQ" && (err != nil || parseQCSQ(response) == nil) {
+		diagnosticCache.noQCSQ = true
+	}
 	diagnosticCache.phase = (phase + 1) % 3
 	if phase == 2 {
 		diagnosticCache.next = time.Now().Add(30 * time.Second)
 		diagnosticCache.view.NetworkCheckedAt = time.Now().UTC().Format(time.RFC3339)
 	}
+}
+
+// csqFromRSSI keeps signal_rssi (0..31) for older Apps. Some firmware reports
+// the QCSQ RSSI magnitude without the minus sign.
+func csqFromRSSI(rssi *int) *int {
+	if rssi == nil || *rssi == 0 {
+		return nil
+	}
+	dbm := *rssi
+	if dbm > 0 {
+		dbm = -dbm
+	}
+	return intPtr(max(0, min(31, (dbm+113)/2)))
 }
 
 func phoneDiagnostics(w http.ResponseWriter, r *http.Request) {

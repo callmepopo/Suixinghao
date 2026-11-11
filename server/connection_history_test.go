@@ -221,3 +221,26 @@ func BenchmarkHistoryThirtyDaySummary(b *testing.B) {
 		}
 	}
 }
+
+func TestHistorySINRMedianAndPhoneSINRRejected(t *testing.T) {
+	now := historyNow()
+	events := []connectionEvent{
+		{Layer: "network", At: now - 90000, SINR: intPtr(-20)}, // outside 24h
+		{Layer: "network", At: now - 300, SINR: intPtr(12)},
+		{Layer: "network", At: now - 200, SINR: intPtr(-3)},
+		{Layer: "network", At: now - 100, SINR: intPtr(15)},
+		{Layer: "network", At: now - 50},
+		{Layer: "module", At: now - 40, SINR: intPtr(99)},
+	}
+	m, n := sinrMedian(events, now-86400, now)
+	if m == nil || *m != 12 || n != 3 {
+		t.Fatalf("median %v samples %d", m, n)
+	}
+	if m, n := sinrMedian(nil, now-86400, now); m != nil || n != 0 {
+		t.Fatal("empty window should have no median")
+	}
+	e := connectionEvent{ID: randomHistoryID(), At: now - 10, Layer: "phone", Kind: "connected", State: "online", SINR: intPtr(5)}
+	if validPhoneEvent(e, now) {
+		t.Fatal("client must not report module SINR")
+	}
+}

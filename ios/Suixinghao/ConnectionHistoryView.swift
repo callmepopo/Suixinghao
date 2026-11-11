@@ -44,6 +44,10 @@ struct ConnectionHistoryView: View {
                     LabeledContent("检测到的离线时长", value: ConnectionHistory.duration(summary.offline_seconds))
                     LabeledContent("未检测时长", value: ConnectionHistory.duration(summary.unknown_seconds))
                     LabeledContent("离线段数", value: "\(summary.interruptions)")
+                    if let median = summary.sinr_median {
+                        LabeledContent("信号质量（中位）", value: SignalQuality.text(median))
+                        if let samples = summary.sinr_samples { Text("最近 24 小时 \(samples) 次采样的中位数；SINR ≥10 好，5–9 可用，0–4 偏弱（对方可能听到断续），<0 差。").font(.caption).foregroundStyle(.secondary) }
+                    }
                 }
             }
             Section("网络恢复后的重连 · 最近 24 小时") {
@@ -108,7 +112,8 @@ struct ConnectionHistoryView: View {
             Text(event.title)
             HStack {
                 Text(event.date, format: .dateTime.month().day().hour().minute().second())
-                if let rssi = event.rssi { Text("信号 \(rssi)/31") }
+                if let sinr = event.sinr { Text("信号 " + SignalQuality.text(sinr)) }
+                else if let rssi = event.rssi { Text("信号 \(rssi)/31") }
             }.font(.caption).foregroundStyle(.secondary)
         }
     }

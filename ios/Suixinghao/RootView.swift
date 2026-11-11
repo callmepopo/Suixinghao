@@ -379,7 +379,8 @@ struct SettingsView: View {
                             LabeledContent("服务 → 模块", value: d.module_available ? "可达 · \(d.module_rtt_ms) ms" : "暂不可达")
                             LabeledContent("SIM", value: d.sim_status)
                             LabeledContent("SIM 网络", value: d.network_status)
-                            if let signal = d.signal_rssi { LabeledContent("信号", value: "\(signal)/31") }
+                            if let sinr = d.signal_sinr { LabeledContent("信号质量", value: SignalQuality.text(sinr)) }
+                            else if let signal = d.signal_rssi { LabeledContent("信号", value: "\(signal)/31") } // 旧服务端仅提供CSQ
                             if let date = d.network_checked_at { Text("网络检测：" + date).font(.caption).foregroundStyle(.secondary) }
                             LabeledContent("服务版本", value: d.server_version)
                             Text("网络注册成功仍需实际验证语音可用；通话期间显示最近的网络检测结果。").font(.footnote).foregroundStyle(.secondary)

@@ -25,6 +25,7 @@ type connectionEvent struct {
 	State  string  `json:"state"`
 	Reason string  `json:"reason"`
 	RSSI   *int    `json:"rssi,omitempty"`
+	SINR   *int    `json:"sinr,omitempty"`
 	Owner  string  `json:"owner,omitempty"`
 }
 
@@ -36,6 +37,8 @@ type connectionSummary struct {
 	Coverage      float64  `json:"coverage"`
 	Rate          *float64 `json:"online_rate"`
 	Interruptions int      `json:"interruptions"`
+	SINRMedian    *int     `json:"sinr_median,omitempty"`
+	SINRSamples   int      `json:"sinr_samples,omitempty"`
 }
 
 type connectionOutage struct {
@@ -420,7 +423,7 @@ func connectionOutages(events []connectionEvent) []connectionOutage {
 }
 
 func validPhoneEvent(e connectionEvent, now float64) bool {
-	if e.Owner != "" || e.RSSI != nil || e.Layer != "phone" || e.At < now-historyRetention.Seconds() || e.At > now+300 {
+	if e.Owner != "" || e.RSSI != nil || e.SINR != nil || e.Layer != "phone" || e.At < now-historyRetention.Seconds() || e.At > now+300 {
 		return false
 	}
 	if len(e.ID) != 36 {
@@ -511,6 +514,11 @@ func appConnectionHistory(w http.ResponseWriter, r *http.Request) {
 	for _, layer := range []string{"phone", "module", "network"} {
 		view.Summaries = append(view.Summaries, summarizeConnections(events, layer, now-86400, now))
 	}
+	for i := range view.Summaries {
+		if view.Summaries[i].Layer == "network" {
+			view.Summaries[i].SINRMedian, view.Summaries[i].SINRSamples = sinrMedian(events, now-86400, now)
+		}
+	}
 	view.Outages = connectionOutages(events)
 	if len(view.Outages) > 100 {
 		view.Outages = view.Outages[len(view.Outages)-100:]
@@ -531,7 +539,7 @@ func runConnectionHistory(ctx context.Context) {
 	defer ticker.Stop()
 	last := map[string]connectionEvent{}
 	lastNetworkCheck := ""
-	queue := func(layer, state, kind, reason string, rssi *int) {
+	queue := func(layer, state, kind, reason string, rssi, sinr *int) {
 		now := historyNow()
 		old, ok := last[layer]
 		if ok && old.State == state && now-old.At < 60 {
@@ -540,7 +548,7 @@ func runConnectionHistory(ctx context.Context) {
 		if ok && old.State == state {
 			kind = "observation"
 		}
-		e := connectionEvent{ID: randomHistoryID(), At: now, Layer: layer, State: state, Kind: kind, Reason: reason, RSSI: rssi}
+		e := connectionEvent{ID: randomHistoryID(), At: now, Layer: layer, State: state, Kind: kind, Reason: reason, RSSI: rssi, SINR: sinr}
 		select {
 		case remoteHistoryEvents <- e:
 			last[layer] = e
@@ -551,7 +559,7 @@ func runConnectionHistory(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			for _, layer := range []string{"module", "network"} {
-				queue(layer, "unknown", "observer_stop", "shutdown", nil)
+				queue(layer, "unknown", "observer_stop", "shutdown", nil, nil)
 			}
 			return
 		case <-ticker.C:
@@ -560,7 +568,7 @@ func runConnectionHistory(ctx context.Context) {
 			if v.Available {
 				state = "online"
 			}
-			queue("module", state, "module_state", "", nil)
+			queue("module", state, "module_state", "", nil, nil)
 			diagnosticCache.Lock()
 			d := diagnosticCache.view
 			diagnosticCache.Unlock()
@@ -573,11 +581,28 @@ func runConnectionHistory(ctx context.Context) {
 				case "未注册", "正在搜索", "注册被拒绝":
 					network = "offline"
 				}
-				queue("network", network, "network_state", "", d.SignalRSSI)
+				queue("network", network, "network_state", "", d.SignalRSSI, d.SignalSINR)
 			}
 		}
 	}
 }
+
+// sinrMedian summarises module signal cleanliness over the window, including
+// heartbeat observations (about one sample per minute while idle).
+func sinrMedian(events []connectionEvent, start, end float64) (*int, int) {
+	var values []int
+	for _, e := range events {
+		if e.Layer == "network" && e.SINR != nil && e.At >= start && e.At <= end {
+			values = append(values, *e.SINR)
+		}
+	}
+	if len(values) == 0 {
+		return nil, 0
+	}
+	sort.Ints(values)
+	return intPtr(values[(len(values)-1)/2]), len(values)
+}
+
 func randomHistoryID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
