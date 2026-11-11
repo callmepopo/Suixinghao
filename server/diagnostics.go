@@ -25,6 +25,8 @@ type diagnosticView struct {
 	SignalRSSI       *int   `json:"signal_rssi,omitempty"`
 	SignalSINR       *int   `json:"signal_sinr,omitempty"`
 	SignalRSRP       *int   `json:"signal_rsrp,omitempty"`
+	NetworkDuplex    string `json:"network_duplex,omitempty"`
+	NetworkBand      string `json:"network_band,omitempty"`
 	NetworkCheckedAt string `json:"network_checked_at,omitempty"`
 }
 
@@ -40,6 +42,7 @@ var diagnosticCache = struct {
 
 var registrationPattern = regexp.MustCompile(`(?m)\+CEREG:\s*\d+,\s*(\d+)`)
 var signalPattern = regexp.MustCompile(`\+CSQ:\s*(\d+),`)
+var nwinfoPattern = regexp.MustCompile(`\+QNWINFO:\s*"(FDD|TDD) LTE","\d*","LTE BAND (\d{1,3})"`)
 var pinPattern = regexp.MustCompile(`\+CPIN:\s*(READY|SIM PIN|SIM PUK)`)
 
 // Called only by the existing controller worker, while its lock is held and idle.
@@ -60,7 +63,7 @@ func sampleNetworkIdle() {
 		signalCommand = "AT+CSQ"
 	}
 	diagnosticCache.Unlock()
-	commands := []string{"AT+CPIN?", "AT+CEREG?", signalCommand}
+	commands := []string{"AT+CPIN?", "AT+CEREG?", signalCommand, "AT+QNWINFO"}
 	phase := diagnosticCache.phase
 	response, err := phoneAT("", commands[phase])
 	diagnosticCache.Lock()
@@ -72,6 +75,7 @@ func sampleNetworkIdle() {
 		diagnosticCache.round.SignalRSSI = nil
 		diagnosticCache.round.SignalSINR = nil
 		diagnosticCache.round.SignalRSRP = nil
+		diagnosticCache.round.NetworkDuplex, diagnosticCache.round.NetworkBand = "", ""
 	}
 	if err == nil {
 		switch phase {
@@ -98,6 +102,11 @@ func sampleNetworkIdle() {
 					diagnosticCache.round.SignalRSSI = &n
 				}
 			}
+		case 3:
+			// Which LTE band the module is camped on (FDD/TDD); only enum and band number.
+			if m := nwinfoPattern.FindStringSubmatch(response); len(m) > 2 {
+				diagnosticCache.round.NetworkDuplex, diagnosticCache.round.NetworkBand = m[1], "Band "+m[2]
+			}
 		}
 	}
 	if phase == 2 && signalCommand == "AT+QCSQ" {
@@ -110,14 +119,15 @@ func sampleNetworkIdle() {
 			diagnosticCache.qcsqFails = 0
 		}
 	}
-	diagnosticCache.phase = (phase + 1) % 3
-	if phase == 2 {
+	diagnosticCache.phase = (phase + 1) % len(commands)
+	if phase == len(commands)-1 {
 		// Publish only a complete round, so readers never see a half-reset
 		// "待检测" between commands (the App warns on SIM/network trouble).
 		r := diagnosticCache.round
 		diagnosticCache.next = time.Now().Add(30 * time.Second)
 		diagnosticCache.view.SIMStatus, diagnosticCache.view.NetworkStatus = r.SIMStatus, r.NetworkStatus
 		diagnosticCache.view.SignalRSSI, diagnosticCache.view.SignalSINR, diagnosticCache.view.SignalRSRP = r.SignalRSSI, r.SignalSINR, r.SignalRSRP
+		diagnosticCache.view.NetworkDuplex, diagnosticCache.view.NetworkBand = r.NetworkDuplex, r.NetworkBand
 		diagnosticCache.view.NetworkCheckedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 }

@@ -70,7 +70,7 @@ POST phone请求及成功200响应：
 
 响应为状态快照；HTTP200不等于对方接听或听到声音。拨号仅接受数字或国际号码前导+，拒绝AT注入。11位国内手机号补+86；3～6位短号、本地7～8位座机、带区号10～12位座机、400/800十位号码按原号；完整国际号码+后7～15位数字。格式规则不等于当地可接通，短信规则独立。
 
-诊断响应字段：server_version、module_available、module_checked_at、module_rtt_ms、sim_status、network_status、network_checked_at、可选signal_rssi(0～31)、signal_sinr(dB)、signal_rsrp(dBm)。时间为RFC3339；没有设备/SIM标识和原始AT文本。控制worker仅空闲时分轮读取CPIN/CEREG/QCSQ（服务0.1.15起；模块拒绝QCSQ后改用CSQ，此时无sinr/rsrp），signal_rssi由QCSQ的RSSI换算以兼容旧App；连续3轮QCSQ失败才改用CSQ。诊断结果按整轮更新，查询失败时sim_status为“未就绪”、network_status为“状态未知”。App在sim_status非就绪或network_status为未注册／正在搜索／注册被拒绝时，于拨号页待机状态旁提示。SINR是信号干净度，决定对方是否听到断续；CSQ是信号＋噪声的总功率，噪声变大时反而升高，不宜作质量判断。每轮完成至少间隔30秒；通话时用缓存，LTE注册不能证明IMS语音可用。
+诊断响应字段：server_version、module_available、module_checked_at、module_rtt_ms、sim_status、network_status、network_checked_at、可选signal_rssi(0～31)、signal_sinr(dB)、signal_rsrp(dBm)、network_duplex(FDD/TDD)、network_band(如Band 39)。时间为RFC3339；没有设备/SIM标识和原始AT文本。控制worker仅空闲时分轮读取CPIN/CEREG/QCSQ/QNWINFO（服务0.1.15起；模块拒绝QCSQ后改用CSQ，此时无sinr/rsrp），signal_rssi由QCSQ的RSSI换算以兼容旧App；连续3轮QCSQ失败才改用CSQ。诊断结果按整轮更新，查询失败时sim_status为“未就绪”、network_status为“状态未知”。App在sim_status非就绪或network_status为未注册／正在搜索／注册被拒绝时，于拨号页待机状态旁提示。SINR是信号干净度，决定对方是否听到断续；CSQ是信号＋噪声的总功率，噪声变大时反而升高，不宜作质量判断。每轮完成至少间隔30秒；通话时用缓存，LTE注册不能证明IMS语音可用。
 
 声音WebSocket双向二进制为 **8000 Hz / S16_LE / 单声道，每包160样本=320字节=20ms**。客户端负责采集重采样和系统音频。上行固定20ms一包；待机可每5秒发文本 `ping`，15秒无上行/心跳会断开。下行也有JSON `{"status":"<description>"}` / `{"error":"<description>"}`，必须同时处理。接通后才启用模块路由和ALSA，待机不持续占声卡。单消息上限8KiB（v1诊断仍限制2KiB）。
 

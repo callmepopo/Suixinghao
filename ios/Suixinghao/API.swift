@@ -16,7 +16,15 @@ struct PhoneDiagnostics: Decodable {
     let network_status: String
     let signal_rssi: Int?
     var signal_sinr: Int? = nil
+    var network_duplex: String? = nil
+    var network_band: String? = nil
     let network_checked_at: String?
+    /// 当前接入的 LTE 频段，例如“TDD（Band 39）”；旧服务端不提供时为 nil。
+    var bandText: String? {
+        guard let duplex = network_duplex, !duplex.isEmpty else { return nil }
+        guard let band = network_band, !band.isEmpty else { return duplex }
+        return "\(duplex)（\(band)）"
+    }
     /// 拨号页待机旁的提示：SIM 或蜂窝网络异常时无法接打电话，需第一时间看到。
     /// “待检测”是旧服务端两条查询之间的中间值，不据此告警。
     var idleWarning: String? {

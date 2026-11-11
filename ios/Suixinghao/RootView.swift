@@ -380,6 +380,7 @@ struct SettingsView: View {
                             LabeledContent("SIM", value: d.sim_status)
                             LabeledContent("SIM 网络", value: d.network_status)
                             if let sinr = d.signal_sinr { LabeledContent("信号质量", value: SignalQuality.text(sinr)) }
+                            if let band = d.bandText { LabeledContent("当前频段", value: band) }
                             else if let signal = d.signal_rssi { LabeledContent("信号", value: "\(signal)/31") } // 旧服务端仅提供CSQ
                             if let date = d.network_checked_at { Text("网络检测：" + date).font(.caption).foregroundStyle(.secondary) }
                             LabeledContent("服务版本", value: d.server_version)

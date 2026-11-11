@@ -56,6 +56,8 @@ func TestIdleSamplingSkipsCallsAndUsesCache(t *testing.T) {
 			return "+CEREG: 0,5", nil
 		case "AT+QCSQ":
 			return "+QCSQ: \"LTE\",71,-101,135,-10", nil
+		case "AT+QNWINFO":
+			return "+QNWINFO: \"TDD LTE\",\"46000\",\"LTE BAND 39\",38400", nil
 		}
 		return "", errors.New("unexpected write")
 	}
@@ -67,11 +69,10 @@ func TestIdleSamplingSkipsCallsAndUsesCache(t *testing.T) {
 	phone.view.State = "idle"
 	diagnosticCache.next = time.Time{}
 	diagnosticCache.phase = 0
-	sampleNetworkIdle()
-	sampleNetworkIdle()
-	sampleNetworkIdle()
-	sampleNetworkIdle()
-	if queries.Load() != 3 || diagnosticCache.view.NetworkStatus != "漫游已注册" || diagnosticCache.view.SIMStatus != "就绪" || *diagnosticCache.view.SignalRSSI != 21 ||
+	for i := 0; i < 5; i++ {
+		sampleNetworkIdle()
+	}
+	if queries.Load() != 4 || diagnosticCache.view.NetworkDuplex != "TDD" || diagnosticCache.view.NetworkBand != "Band 39" || diagnosticCache.view.NetworkStatus != "漫游已注册" || diagnosticCache.view.SIMStatus != "就绪" || *diagnosticCache.view.SignalRSSI != 21 ||
 		*diagnosticCache.view.SignalSINR != 7 || *diagnosticCache.view.SignalRSRP != -101 {
 		t.Fatal("sampling/cache failed")
 	}
@@ -107,7 +108,7 @@ func TestIdleSamplingFallsBackToCSQ(t *testing.T) {
 			t.Fatal("one failure must not disable QCSQ")
 		}
 		diagnosticCache.next = time.Time{}
-		for i := 0; i < 3; i++ {
+		for i := 0; i < 4; i++ {
 			sampleNetworkIdle()
 		}
 	}
@@ -115,10 +116,10 @@ func TestIdleSamplingFallsBackToCSQ(t *testing.T) {
 		t.Fatal("repeated QCSQ failure not remembered")
 	}
 	diagnosticCache.next = time.Time{}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		sampleNetworkIdle()
 	}
-	if sent[len(sent)-1] != "AT+CSQ" || *diagnosticCache.view.SignalRSSI != 18 || diagnosticCache.view.SignalSINR != nil {
+	if sent[len(sent)-2] != "AT+CSQ" || diagnosticCache.view.NetworkDuplex != "" || *diagnosticCache.view.SignalRSSI != 18 || diagnosticCache.view.SignalSINR != nil {
 		t.Fatalf("fallback failed: %v", sent)
 	}
 }
@@ -167,19 +168,22 @@ func TestIdleSamplingPublishesWholeRound(t *testing.T) {
 			return "+CEREG: 0,1", nil
 		case "AT+QCSQ":
 			return "+QCSQ: \"LTE\",71,-101,135,-10", nil
+		case "AT+QNWINFO":
+			return "+QNWINFO: \"FDD LTE\",\"46000\",\"LTE BAND 3\",1300", nil
 		}
 		return "", errors.New("unexpected")
 	}
 	phone.view = phoneView{State: "idle", Available: true}
 	diagnosticCache.next, diagnosticCache.phase = time.Time{}, 0
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		sampleNetworkIdle()
 	}
-	if diagnosticCache.view.SIMStatus != "就绪" || diagnosticCache.view.NetworkStatus != "已注册" {
+	if diagnosticCache.view.SIMStatus != "就绪" || diagnosticCache.view.NetworkStatus != "已注册" || diagnosticCache.view.NetworkDuplex != "FDD" {
 		t.Fatal("first round not published")
 	}
 	sim = ""
 	diagnosticCache.next = time.Time{}
+	sampleNetworkIdle()
 	sampleNetworkIdle()
 	sampleNetworkIdle()
 	if diagnosticCache.view.SIMStatus != "就绪" || diagnosticCache.view.NetworkStatus != "已注册" {
