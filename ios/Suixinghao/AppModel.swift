@@ -107,6 +107,11 @@ final class AppModel {
 
     var manuallyDisconnected = ConnectionStore.load()?.disconnected == true
 
+    /// 模块在线但 SIM／网络异常时的拨号页提示；通话中不显示。
+    var moduleWarning: String? {
+        guard connected, statusFresh, !demo, status?.available == true, status?.hasCall != true else { return nil }
+        return diagnostics?.idleWarning
+    }
     var connectionTitle: String {
         if manuallyDisconnected { return "已断开" }
         if demo { return "演示模式" }

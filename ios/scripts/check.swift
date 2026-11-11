@@ -115,11 +115,18 @@ import AVFoundation
         let base = #"{"server_version":"0.1.15","module_available":true,"module_rtt_ms":5,"sim_status":"就绪","network_status":"已注册","signal_rssi":21"#
         let newDiag = try JSONDecoder().decode(PhoneDiagnostics.self, from: Data((base + #","signal_sinr":-3}"#).utf8))
         let oldDiag = try JSONDecoder().decode(PhoneDiagnostics.self, from: Data((base + "}").utf8))
+        func diag(_ sim: String, _ net: String) throws -> PhoneDiagnostics {
+            try JSONDecoder().decode(PhoneDiagnostics.self, from: Data(#"{"server_version":"0.1.15","module_available":true,"module_rtt_ms":5,"sim_status":"\#(sim)","network_status":"\#(net)"}"#.utf8))
+        }
+        try check(try diag("就绪", "已注册").idleWarning == nil && diag("就绪", "漫游已注册").idleWarning == nil, "正常时不提示")
+        try check(try diag("未就绪", "未注册").idleWarning == "SIM 未就绪" && diag("需要 PIN", "已注册").idleWarning == "SIM 未就绪", "SIM异常提示")
+        try check(try diag("就绪", "未注册").idleWarning == "无信号" && diag("就绪", "正在搜索").idleWarning == "无信号", "无信号提示")
+        try check(try diag("待检测", "待检测").idleWarning == nil && diag("就绪", "状态未知").idleWarning == nil, "检测中不误报")
         try check(newDiag.signal_sinr == -3 && oldDiag.signal_sinr == nil && oldDiag.signal_rssi == 21, "新旧服务端诊断兼容")
         let summary = try JSONDecoder().decode(ConnectionSummary.self, from: Data(#"{"layer":"network","online_seconds":1,"offline_seconds":0,"unknown_seconds":0,"coverage":1,"online_rate":1,"interruptions":0,"sinr_median":15,"sinr_samples":800}"#.utf8))
         try check(summary.sinr_median == 15 && summary.sinr_samples == 800, "连接历史SINR中位")
         let event = ConnectionEvent(id: "e", at: 1, layer: "phone", kind: "connected", state: "online", reason: "")
         try check(!String(decoding: try JSONEncoder().encode(event), as: UTF8.self).contains("sinr"), "手机事件不上传SINR")
-        print("通过：号码、HTTPS/Key、短信互斥标识、20ms 音频分帧、缓存上限、静音清理、PCM 解码及 48k→8k 重采样、信号质量分档与诊断兼容。未联网、未启用麦克风。")
+        print("通过：号码、HTTPS/Key、短信互斥标识、20ms 音频分帧、缓存上限、静音清理、PCM 解码及 48k→8k 重采样、信号质量分档与诊断兼容、拨号页SIM／无信号提示。未联网、未启用麦克风。")
     }
 }

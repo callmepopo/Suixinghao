@@ -17,6 +17,13 @@ struct PhoneDiagnostics: Decodable {
     let signal_rssi: Int?
     var signal_sinr: Int? = nil
     let network_checked_at: String?
+    /// 拨号页待机旁的提示：SIM 或蜂窝网络异常时无法接打电话，需第一时间看到。
+    /// “待检测”是旧服务端两条查询之间的中间值，不据此告警。
+    var idleWarning: String? {
+        if ["未就绪", "需要 PIN", "需要 PUK"].contains(sim_status) { return "SIM 未就绪" }
+        if ["未注册", "正在搜索", "注册被拒绝"].contains(network_status) { return "无信号" }
+        return nil
+    }
 }
 /// Module signal cleanliness (SINR, dB): it decides whether the other side hears
 /// stutter. CSQ x/31 is total received power and rises with noise, so it is not shown.

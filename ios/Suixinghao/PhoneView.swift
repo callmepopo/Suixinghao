@@ -139,9 +139,12 @@ struct PhoneView: View {
     }
     private var statusText: String {
         let title = model.connectionTitle
-        return title.hasPrefix("已连接 · ") ? String(title.dropFirst(6)) : title
+        let text = title.hasPrefix("已连接 · ") ? String(title.dropFirst(6)) : title
+        if let warning = model.moduleWarning { return text + " · " + warning }
+        return text
     }
     private var statusColor: Color {
+        if model.moduleWarning != nil { return .red }
         if model.connected && model.statusFresh && !model.restoringConnection && !model.demo { return .green }
         if model.restoringConnection || (!model.demo && !model.manuallyDisconnected) { return .orange }
         return .secondary

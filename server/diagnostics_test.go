@@ -85,6 +85,7 @@ func TestIdleSamplingFallsBackToCSQ(t *testing.T) {
 		diagnosticCache.next = time.Time{}
 		diagnosticCache.phase = 0
 		diagnosticCache.noQCSQ = false
+		diagnosticCache.qcsqFails = 0
 	}()
 	var sent []string
 	phoneAT = func(_, command string) (string, error) {
@@ -100,12 +101,18 @@ func TestIdleSamplingFallsBackToCSQ(t *testing.T) {
 		return "", errors.New("ERROR")
 	}
 	phone.view = phoneView{State: "idle", Available: true}
-	diagnosticCache.next, diagnosticCache.phase, diagnosticCache.noQCSQ = time.Time{}, 0, false
-	for i := 0; i < 3; i++ {
-		sampleNetworkIdle()
+	diagnosticCache.next, diagnosticCache.phase, diagnosticCache.noQCSQ, diagnosticCache.qcsqFails = time.Time{}, 0, false, 0
+	for round := 0; round < 3; round++ {
+		if diagnosticCache.noQCSQ {
+			t.Fatal("one failure must not disable QCSQ")
+		}
+		diagnosticCache.next = time.Time{}
+		for i := 0; i < 3; i++ {
+			sampleNetworkIdle()
+		}
 	}
 	if !diagnosticCache.noQCSQ || diagnosticCache.view.SignalSINR != nil {
-		t.Fatal("QCSQ failure not remembered")
+		t.Fatal("repeated QCSQ failure not remembered")
 	}
 	diagnosticCache.next = time.Time{}
 	for i := 0; i < 3; i++ {
@@ -136,5 +143,50 @@ func TestStatusSnapshotDoesNotWaitForRouteAndMarksStale(t *testing.T) {
 	v := p.snapshot()
 	if time.Since(started) > 100*time.Millisecond || v.Available || v.CallID != "original" {
 		t.Fatal("snapshot blocked or stale state was trusted")
+	}
+}
+
+func TestIdleSamplingPublishesWholeRound(t *testing.T) {
+	oldAT, oldView, oldCache := phoneAT, phone.view, diagnosticCache.view
+	defer func() {
+		phoneAT, phone.view, diagnosticCache.view = oldAT, oldView, oldCache
+		diagnosticCache.next, diagnosticCache.phase = time.Time{}, 0
+	}()
+	sim := "+CPIN: READY"
+	phoneAT = func(_, command string) (string, error) {
+		switch command {
+		case "AT+CPIN?":
+			if sim == "" {
+				return "", errors.New("+CME ERROR: 13")
+			}
+			return sim, nil
+		case "AT+CEREG?":
+			if sim == "" {
+				return "+CEREG: 0,0", nil
+			}
+			return "+CEREG: 0,1", nil
+		case "AT+QCSQ":
+			return "+QCSQ: \"LTE\",71,-101,135,-10", nil
+		}
+		return "", errors.New("unexpected")
+	}
+	phone.view = phoneView{State: "idle", Available: true}
+	diagnosticCache.next, diagnosticCache.phase = time.Time{}, 0
+	for i := 0; i < 3; i++ {
+		sampleNetworkIdle()
+	}
+	if diagnosticCache.view.SIMStatus != "就绪" || diagnosticCache.view.NetworkStatus != "已注册" {
+		t.Fatal("first round not published")
+	}
+	sim = ""
+	diagnosticCache.next = time.Time{}
+	sampleNetworkIdle()
+	sampleNetworkIdle()
+	if diagnosticCache.view.SIMStatus != "就绪" || diagnosticCache.view.NetworkStatus != "已注册" {
+		t.Fatal("half round leaked to readers")
+	}
+	sampleNetworkIdle()
+	if diagnosticCache.view.SIMStatus != "未就绪" || diagnosticCache.view.NetworkStatus != "未注册" {
+		t.Fatalf("SIM fault not published: %+v", diagnosticCache.view)
 	}
 }

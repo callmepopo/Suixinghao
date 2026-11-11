@@ -30,10 +30,12 @@ type diagnosticView struct {
 
 var diagnosticCache = struct {
 	sync.Mutex
-	view   diagnosticView
-	next   time.Time
-	phase  int
-	noQCSQ bool
+	view      diagnosticView
+	next      time.Time
+	phase     int
+	noQCSQ    bool
+	round     diagnosticView // in-progress round, published as a whole
+	qcsqFails int
 }{view: diagnosticView{SIMStatus: "待检测", NetworkStatus: "待检测"}}
 
 var registrationPattern = regexp.MustCompile(`(?m)\+CEREG:\s*\d+,\s*(\d+)`)
@@ -64,45 +66,58 @@ func sampleNetworkIdle() {
 	diagnosticCache.Lock()
 	defer diagnosticCache.Unlock()
 	if phase == 0 {
-		diagnosticCache.view.SIMStatus = "待检测"
-		diagnosticCache.view.NetworkStatus = "待检测"
-		diagnosticCache.view.SignalRSSI = nil
-		diagnosticCache.view.SignalSINR = nil
-		diagnosticCache.view.SignalRSRP = nil
+		// Defaults when a query fails (e.g. CME ERROR 13 when the SIM drops out).
+		diagnosticCache.round.SIMStatus = "未就绪"
+		diagnosticCache.round.NetworkStatus = "状态未知"
+		diagnosticCache.round.SignalRSSI = nil
+		diagnosticCache.round.SignalSINR = nil
+		diagnosticCache.round.SignalRSRP = nil
 	}
 	if err == nil {
 		switch phase {
 		case 0:
 			if m := pinPattern.FindStringSubmatch(response); len(m) > 1 {
-				diagnosticCache.view.SIMStatus = map[string]string{"READY": "就绪", "SIM PIN": "需要 PIN", "SIM PUK": "需要 PUK"}[m[1]]
+				diagnosticCache.round.SIMStatus = map[string]string{"READY": "就绪", "SIM PIN": "需要 PIN", "SIM PUK": "需要 PUK"}[m[1]]
 			}
 		case 1:
 			if m := registrationPattern.FindStringSubmatch(response); len(m) > 1 {
-				diagnosticCache.view.NetworkStatus = map[string]string{"0": "未注册", "1": "已注册", "2": "正在搜索", "3": "注册被拒绝", "4": "状态未知", "5": "漫游已注册"}[m[1]]
-				if diagnosticCache.view.NetworkStatus == "" {
-					diagnosticCache.view.NetworkStatus = "状态未知"
+				diagnosticCache.round.NetworkStatus = map[string]string{"0": "未注册", "1": "已注册", "2": "正在搜索", "3": "注册被拒绝", "4": "状态未知", "5": "漫游已注册"}[m[1]]
+				if diagnosticCache.round.NetworkStatus == "" {
+					diagnosticCache.round.NetworkStatus = "状态未知"
 				}
 			}
 		case 2:
 			if signalCommand == "AT+QCSQ" {
 				if v := parseQCSQ(response); v != nil {
-					diagnosticCache.view.SignalSINR, diagnosticCache.view.SignalRSRP = v.SINR, v.RSRP
-					diagnosticCache.view.SignalRSSI = csqFromRSSI(v.RSSI)
+					diagnosticCache.round.SignalSINR, diagnosticCache.round.SignalRSRP = v.SINR, v.RSRP
+					diagnosticCache.round.SignalRSSI = csqFromRSSI(v.RSSI)
 				}
 			} else if m := signalPattern.FindStringSubmatch(response); len(m) > 1 {
 				n, _ := strconv.Atoi(m[1])
 				if n >= 0 && n <= 31 {
-					diagnosticCache.view.SignalRSSI = &n
+					diagnosticCache.round.SignalRSSI = &n
 				}
 			}
 		}
 	}
-	if phase == 2 && signalCommand == "AT+QCSQ" && (err != nil || parseQCSQ(response) == nil) {
-		diagnosticCache.noQCSQ = true
+	if phase == 2 && signalCommand == "AT+QCSQ" {
+		// A SIM or radio fault can fail one query; only repeated failures mean
+		// the firmware lacks QCSQ.
+		if err != nil || parseQCSQ(response) == nil {
+			diagnosticCache.qcsqFails++
+			diagnosticCache.noQCSQ = diagnosticCache.qcsqFails >= 3
+		} else {
+			diagnosticCache.qcsqFails = 0
+		}
 	}
 	diagnosticCache.phase = (phase + 1) % 3
 	if phase == 2 {
+		// Publish only a complete round, so readers never see a half-reset
+		// "待检测" between commands (the App warns on SIM/network trouble).
+		r := diagnosticCache.round
 		diagnosticCache.next = time.Now().Add(30 * time.Second)
+		diagnosticCache.view.SIMStatus, diagnosticCache.view.NetworkStatus = r.SIMStatus, r.NetworkStatus
+		diagnosticCache.view.SignalRSSI, diagnosticCache.view.SignalSINR, diagnosticCache.view.SignalRSRP = r.SignalRSSI, r.SignalSINR, r.SignalRSRP
 		diagnosticCache.view.NetworkCheckedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 }
