@@ -215,6 +215,7 @@ func (s *audioStats) summary(final bool) {
 	v["down_level"] = s.downLevel.view()
 	s.upLevel, s.downLevel = pcmLevel{}, pcmLevel{}
 	v["signal"] = callSignalSummary()
+	v["radio"] = callRadioSummary()
 	if s.jitter != nil {
 		v["up_jitter"] = s.jitter.view()
 	}

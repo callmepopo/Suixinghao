@@ -119,3 +119,73 @@ func TestAudioDiagnosticsV3ContextLevelsAndGaps(t *testing.T) {
 		t.Fatal("levels are per window")
 	}
 }
+
+func TestParseServingCell(t *testing.T) {
+	idle := parseServingCell("+QENG: \"servingcell\",\"NOCONN\",\"LTE\",\"TDD\",460,00,ABCDEF0,343,38400,39,5,5,1A2B,-93,-7,-66,15,26\r\n\r\nOK")
+	if idle == nil || idle.State != "NOCONN" || idle.Duplex != "TDD" || *idle.PCI != 343 || *idle.EARFCN != 38400 ||
+		*idle.RSRP != -93 || *idle.RSRQ != -7 || *idle.RSSI != -66 || *idle.SINR != 15 || *idle.SRxLev != 26 || idle.CQI != nil || idle.TXPower != nil {
+		t.Fatalf("idle %+v", idle)
+	}
+	conn := parseServingCell("+QENG: \"servingcell\",\"CONNECT\",\"LTE\",\"TDD\",460,00,ABCDEF0,343,38400,39,5,5,1A2B,-95,-9,-67,12,9,-32,24\r\nOK")
+	if conn == nil || conn.State != "CONNECT" || *conn.CQI != 9 || *conn.TXPower != -32 || *conn.SRxLev != 24 {
+		t.Fatalf("connect %+v", conn)
+	}
+	dash := parseServingCell("+QENG: \"servingcell\",\"CONNECT\",\"LTE\",\"FDD\",460,01,ABC,10,1650,3,5,5,1A,-100,-12,-70,3,-,-,20\r\nOK")
+	if dash == nil || dash.CQI != nil || dash.TXPower != nil || *dash.SRxLev != 20 {
+		t.Fatalf("dash %+v", dash)
+	}
+	if s := parseServingCell("+QENG: \"servingcell\",\"SEARCH\"\r\nOK"); s == nil || s.State != "SEARCH" || s.RSRP != nil {
+		t.Fatalf("search %+v", s)
+	}
+	if parseServingCell("ERROR") != nil {
+		t.Fatal("error must not parse")
+	}
+	b, _ := json.Marshal(conn)
+	if strings.Contains(string(b), "ABCDEF0") || strings.Contains(string(b), "1A2B") {
+		t.Fatal("cell id or TAC leaked")
+	}
+}
+
+func TestCallRadioSeriesThrottlesAndDrains(t *testing.T) {
+	old := phoneAT
+	defer func() { phoneAT = old }()
+	calls := 0
+	phoneAT = func(_, c string) (string, error) {
+		calls++
+		if c != `AT+QENG="servingcell"` {
+			t.Fatalf("unexpected %s", c)
+		}
+		return "+QENG: \"servingcell\",\"CONNECT\",\"LTE\",\"TDD\",460,00,X,343,38400,39,5,5,Y,-95,-9,-67,12,9,-32,24\r\nOK", nil
+	}
+	now := time.Now()
+	resetCallRadio(now)
+	sampleCallRadio(now.Add(time.Second)) // startup grace
+	for i := 3; i <= 9; i++ {
+		sampleCallRadio(now.Add(time.Duration(i) * time.Second))
+	}
+	if calls != 4 { // 3, 5, 7, 9 s
+		t.Fatalf("calls %d", calls)
+	}
+	s := callRadioSummary()
+	if s["samples"] != uint64(4) || len(s["series"].([]callRadioSample)) != 4 || s["states"].(map[string]uint64)["CONNECT"] != 4 {
+		t.Fatalf("summary %+v", s)
+	}
+	if len(callRadioSummary()["series"].([]callRadioSample)) != 0 {
+		t.Fatal("series must drain per summary")
+	}
+}
+
+func TestCallRadioStopsAfterRepeatedFailures(t *testing.T) {
+	old := phoneAT
+	defer func() { phoneAT = old }()
+	calls := 0
+	phoneAT = func(_, _ string) (string, error) { calls++; return "", errors.New("ERROR") }
+	now := time.Now()
+	resetCallRadio(now)
+	for i := 3; i <= 30; i++ {
+		sampleCallRadio(now.Add(time.Duration(i) * time.Second))
+	}
+	if calls != 3 {
+		t.Fatalf("calls %d, want 3 then disabled", calls)
+	}
+}
