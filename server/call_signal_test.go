@@ -127,7 +127,7 @@ func TestParseServingCell(t *testing.T) {
 		t.Fatalf("idle %+v", idle)
 	}
 	conn := parseServingCell("+QENG: \"servingcell\",\"CONNECT\",\"LTE\",\"TDD\",460,00,ABCDEF0,343,38400,39,5,5,1A2B,-95,-9,-67,12,9,-32,24\r\nOK")
-	if conn == nil || conn.State != "CONNECT" || *conn.CQI != 9 || *conn.TXPower != -32 || *conn.SRxLev != 24 {
+	if conn == nil || conn.State != "CONNECT" || *conn.CQI != 9 || *conn.TXPower != -32 || *conn.SRxLev != 24 || conn.Tail != "-95,-9,-67,12,9,-32,24" {
 		t.Fatalf("connect %+v", conn)
 	}
 	dash := parseServingCell("+QENG: \"servingcell\",\"CONNECT\",\"LTE\",\"FDD\",460,01,ABC,10,1650,3,5,5,1A,-100,-12,-70,3,-,-,20\r\nOK")

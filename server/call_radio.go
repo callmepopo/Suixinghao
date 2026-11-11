@@ -37,6 +37,9 @@ type callRadioSample struct {
 	CQI     *int   `json:"cqi,omitempty"`
 	TXPower *int   `json:"tx_power,omitempty"`
 	SRxLev  *int   `json:"srxlev,omitempty"`
+	// Tail is the raw value list after <TAC> (radio numbers only), kept until
+	// the CONNECT field order of this firmware is confirmed.
+	Tail string `json:"tail,omitempty"`
 }
 
 var callRadio = struct {
@@ -86,6 +89,7 @@ func parseServingCell(s string) *callRadioSample {
 	v.Duplex = strings.Trim(f[0], `"`)
 	v.PCI, v.EARFCN = optionalInt(f[4]), optionalInt(f[5])
 	tail := f[10:]
+	v.Tail = strings.Join(tail, ",")
 	v.RSRP, v.RSRQ, v.RSSI, v.SINR = optionalInt(tail[0]), optionalInt(tail[1]), optionalInt(tail[2]), optionalInt(tail[3])
 	switch len(tail) {
 	case 5:
