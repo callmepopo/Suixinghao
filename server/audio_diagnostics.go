@@ -390,6 +390,9 @@ func (w *audioStderr) Write(p []byte) (int, error) {
 }
 func (w *audioStderr) line(line string) {
 	line = strings.ToLower(line)
+	if ms := underrunMS(line); ms != "" && strings.Contains(line, "underrun") {
+		log.Printf("音频进程欠载 device=%s length_ms=%s", w.device, ms)
+	}
 	w.stats.Lock()
 	w.stats.stderrLines++
 	kind := "audio_process_error"

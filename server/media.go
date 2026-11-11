@@ -154,7 +154,30 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 
 		var total int
 		started, frames := time.Now(), time.Duration(0)
+		streamStarted, gaps := started, uplinkGapPlan()
+		if len(gaps) > 0 {
+			log.Printf("上行间隙测试已启用: 本通计划 %d 次", len(gaps))
+		}
 		for ctx.Err() == nil {
+			if len(gaps) > 0 && time.Since(streamStarted) >= gaps[0].at {
+				// Let everything already queued play out, then keep the stream dry
+				// for the planned time. Audio arriving meanwhile is dropped, not
+				// delayed, and pacing restarts from here.
+				gap := gaps[0]
+				gaps = gaps[1:]
+				queued := max(frames*20*time.Millisecond-time.Since(started), 0)
+				wait := queued + gap.hold
+				log.Printf("上行间隙测试: 距声音流开始=%.1fs 计划断流=%dms 排空等待=%dms", time.Since(streamStarted).Seconds(), gap.hold.Milliseconds(), queued.Milliseconds())
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				jitter.drop(int(wait / (20 * time.Millisecond)))
+				started, frames = time.Now(), 0
+			}
 			// The blocking write into the small device buffer paces this loop; the
 			// guard only stops a sink that never blocks from spinning ahead.
 			if ahead := frames*20*time.Millisecond - time.Since(started); ahead > 120*time.Millisecond {

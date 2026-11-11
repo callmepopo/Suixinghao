@@ -85,6 +85,17 @@ func (j *uplinkJitter) next() ([]byte, bool) {
 	return b, true
 }
 
+// drop discards up to n queued frames (oldest first), for audio that arrived
+// while the stream was deliberately held.
+func (j *uplinkJitter) drop(n int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for ; n > 0 && len(j.queue) > 0; n-- {
+		j.queue = j.queue[1:]
+		j.trimmedFrames++
+	}
+}
+
 // fill fades the previous frame out once, then writes silence.
 func (j *uplinkJitter) fill() []byte {
 	j.concealedFrames++
