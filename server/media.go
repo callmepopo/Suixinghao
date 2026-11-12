@@ -153,10 +153,14 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 		defer cancel()
 
 		var total int
+		gaps, testAudio := uplinkTest(run)
 		started, frames := time.Now(), time.Duration(0)
-		streamStarted, gaps := started, uplinkGapPlan()
+		streamStarted := started
 		if len(gaps) > 0 {
 			log.Printf("上行间隙测试已启用: 本通计划 %d 次", len(gaps))
+		}
+		if testAudio != nil {
+			log.Printf("上行测试音频已启用: 时长=%.1fs", testAudio.seconds())
 		}
 		for ctx.Err() == nil {
 			if len(gaps) > 0 && time.Since(streamStarted) >= gaps[0].at {
@@ -188,6 +192,10 @@ func runAudio(parent context.Context, c *websocket.Conn, mic <-chan []byte, run 
 			active := uplinkAllowed(phone.snapshot(), run, activeRun())
 			if !active {
 				b = make([]byte, 320)
+			} else if testAudio != nil {
+				// The phone queue still drains above; the prepared recording is what
+				// the far end hears, so count it as real audio.
+				b, fromPhone = testAudio.next(), true
 			}
 			writeRecording(true, b)
 			writeStarted := time.Now()
