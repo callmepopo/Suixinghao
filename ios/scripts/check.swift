@@ -6,18 +6,19 @@ import AVFoundation
         func check(_ condition: Bool, _ label: String) throws {
             if !condition { throw APIError(message: "检查失败：" + label) }
         }
-        try check(try API.normalizedNumber("13800000000") == "+8613800000000", "国内号码补国家码")
-        try check(try API.normalizedNumber("+12025550123") == "+12025550123", "国际号码保留")
-        try check(try API.normalizedSMSReplyNumber("10086") == "10086", "客服短号短信回复")
+        try check(try API.normalizedSMSSendNumber("13800000000") == "+8613800000000", "国内号码补国家码")
+        try check(try API.normalizedSMSSendNumber("+12025550123") == "+12025550123", "国际号码保留")
         try check(try API.normalizedSMSReplyNumber("13800000000") == "+8613800000000", "手机号短信回复")
-        do { _ = try API.normalizedSMSReplyNumber("10;AT"); throw APIError(message: "短信回复误收非法号码") }
-        catch let e as APIError { try check(e.message != "短信回复误收非法号码", "短信回复拒绝非法号码") }
-        for sender in ["106901234567890", "01012345678", "95588", "+8613800000000", "12345678901234567890"] {
-            try check(try API.normalizedSMSReplyNumber(sender) == sender, "数字发送方均可回复")
+        let platformNumbers = [11, 14, 15, 16, 20].map { "106" + String(repeating: "0", count: $0 - 3) }
+        for number in platformNumbers {
+            try check(try API.normalizedSMSSendNumber(number) == number, "新建短信时平台号原样发送")
         }
-        for bad in ["Apple", "+86 138", "123456789012345678901", "12"] {
-            do { _ = try API.normalizedSMSReplyNumber(bad); throw APIError(message: "短信回复误收非法号码") }
-            catch let e as APIError { try check(e.message != "短信回复误收非法号码", "非数字或超长发送方不回复") }
+        for number in platformNumbers + ["10086", "01012345678", "95588", "+8613800000000", "12345678901234567890"] {
+            try check(try API.normalizedSMSReplyNumber(number) == number, "回复短信时平台号、短号及座机原样发送")
+        }
+        for invalid in ["Apple", "10;AT", "+86 138", "123456789012345678901", "12", "１３８００００００００"] {
+            do { _ = try API.normalizedSMSReplyNumber(invalid); throw APIError(message: "短信回复误收非法号码") }
+            catch let e as APIError { try check(e.message != "短信回复误收非法号码", "短信回复拒绝不合法号码") }
         }
         for short in ["110", "10086", "95347", "123456"] {
             try check(try API.normalizedDialNumber(short) == short, "短号拨号")
@@ -35,11 +36,9 @@ import AVFoundation
             do { _ = try API.normalizedDialNumber(invalid); throw APIError(message: "接受了错误拨号") }
             catch let e as APIError { try check(e.message != "接受了错误拨号", "拒绝错误拨号") }
         }
-        do { _ = try API.normalizedNumber("10086"); throw APIError(message: "短信误收短号") }
-        catch let e as APIError { try check(e.message != "短信误收短号", "短信规则未扩大") }
-        for invalid in ["13800000000;AT", "123", "+012345678", "１３８００００００００"] {
-            do { _ = try API.normalizedNumber(invalid); throw APIError(message: "接受了错误号码") }
-            catch let e as APIError { try check(e.message != "接受了错误号码", "拒绝错误号码") }
+        for invalid in ["106", "106000;AT", "106" + String(repeating: "0", count: 18), "10086", "13800000000;AT", "123", "+012345678", "１３８００００００００"] {
+            do { _ = try API.normalizedSMSSendNumber(invalid); throw APIError(message: "接受了错误号码") }
+            catch let e as APIError { try check(e.message != "接受了错误号码", "新建短信拒绝不合规号码") }
         }
         for invalid in ["http://example.invalid", "https://user:secret@example.invalid", "https://example.invalid/api", "https://example.invalid?token=secret"] {
             do { _ = try API.baseURL(invalid); throw APIError(message: "接受了错误地址") }

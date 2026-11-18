@@ -228,19 +228,22 @@ final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         }
         return key
     }
-    static func normalizedNumber(_ input: String) throws -> String {
+    private static func isSMSPlatformNumber(_ number: String) -> Bool {
+        number.range(of: "^106[0-9]{1,17}$", options: .regularExpression) != nil
+    }
+    static func normalizedSMSSendNumber(_ input: String) throws -> String {
         let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isSMSPlatformNumber(raw) { return raw }
         if raw.range(of: "^1[0-9]{10}$", options: .regularExpression) != nil { return "+86" + raw }
         if raw.range(of: "^\\+[1-9][0-9]{6,14}$", options: .regularExpression) != nil { return raw }
-        throw APIError(message: "请输入 11 位国内手机号，或以 + 开头的完整国际号码。")
+        throw APIError(message: "请输入国内手机号、以 106 开头的短信平台号，或以 + 开头的完整国际号码。")
     }
-    /// Any numeric sender can be replied to (short codes, landlines, 106 service numbers…).
-    /// Only "+" and digits pass: the address is encoded into the module's SMS PDU.
     static func normalizedSMSReplyNumber(_ input: String) throws -> String {
         let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isSMSPlatformNumber(raw) { return raw }
         if raw.range(of: "^1[0-9]{10}$", options: .regularExpression) != nil { return "+86" + raw }
         if raw.range(of: "^\\+?[0-9]{3,20}$", options: .regularExpression) != nil { return raw }
-        throw APIError(message: "发送方不是电话号码（含字母或符号），短信无法回复。")
+        throw APIError(message: "发送方号码格式不支持回复。")
     }
     static func normalizedDialNumber(_ input: String) throws -> String {
         let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)

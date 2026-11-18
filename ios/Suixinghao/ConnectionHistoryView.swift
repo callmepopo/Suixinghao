@@ -3,8 +3,11 @@ import SwiftUI
 struct ConnectionHistoryView: View {
     @Environment(AppModel.self) private var model
     private var summaries: [ConnectionSummary] {
-        var result = model.connectionHistory?.summaries.filter { $0.layer != "phone" } ?? []
-        if let local = model.localConnectionSummary { result.insert(local, at: 0) }
+        let remote = model.connectionHistory?.summaries ?? []
+        var result = ["network", "module"].compactMap { layer in
+            remote.first { $0.layer == layer }
+        }
+        if let local = model.localConnectionSummary { result.append(local) }
         return result
     }
     private var outages: [ConnectionOutage] { Array((model.connectionHistory?.outages ?? []).reversed()) }

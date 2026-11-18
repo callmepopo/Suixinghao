@@ -180,15 +180,14 @@ struct ThreadView: View {
     @State private var copiedMessageID: Int?
     @State private var deleting = false
     @State private var deletionError: String?
+    private var canReplyToSender: Bool { (try? API.normalizedSMSReplyNumber(contact.peer)) != nil }
     // Reply to any numeric sender; whether it is delivered is up to the carrier and recipient.
     private var replyDevice: String? {
-        guard (try? API.normalizedSMSReplyNumber(contact.peer)) != nil else { return nil }
+        guard canReplyToSender else { return nil }
         return contact.device_id ?? model.devices.first?.id
     }
     private var replyBlockedReason: String {
-        (try? API.normalizedSMSReplyNumber(contact.peer)) == nil
-            ? "发送方不是电话号码（含字母或符号），短信无法回复。"
-            : "暂无在线 SIM，连接恢复后即可回复。"
+        canReplyToSender ? "暂无在线 SIM，连接恢复后即可回复。" : "发送方号码格式不支持回复。"
     }
     var body: some View {
         ScrollViewReader { proxy in
@@ -260,7 +259,7 @@ struct ThreadView: View {
         replyStatus = ""
         sending = true
         let text = draft
-        if await model.send(number: contact.peer, message: text, device: device, showNotice: false, allowShortCode: true) {
+        if await model.reply(to: contact, message: text, device: device) {
             draft = ""
             replyStatus = "已提交发送，是否送达以对方收到为准。"
             await load()
@@ -297,7 +296,7 @@ struct ComposeView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("收件人") { TextField("国内手机号或 + 国际号码", text: $number).keyboardType(.phonePad) }
+                Section("收件人") { TextField("手机号、106 平台号或 + 国际号码", text: $number).keyboardType(.phonePad) }
                 Section("发送设备") {
                     Picker("模块", selection: $device) {
                         Text("请选择").tag("")
@@ -306,7 +305,7 @@ struct ComposeView: View {
                     if model.devices.isEmpty { Text("没有可用设备，请返回刷新。 ").foregroundStyle(.secondary) }
                 }
                 Section("正文") { TextEditor(text: $message).frame(minHeight: 160) }
-                Section { Text("发送会使用模块 SIM，可能产生运营商短信费用。11 位国内手机号会自动补 +86。接口成功不代表已送达。").font(.footnote).foregroundStyle(.secondary) }
+                Section { Text("发送会使用模块 SIM，可能产生运营商短信费用。国内手机号自动补 +86，106 平台号按原号码发送。").font(.footnote).foregroundStyle(.secondary) }
             }.navigationTitle("新短信").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(model.busy) }
@@ -327,6 +326,10 @@ struct SettingsView: View {
     @AppStorage("serverAddress") private var address = ""
     @State private var key = ""
     @State private var contactsPermission = PhoneContacts.permissionDescription
+    private var phoneServiceReachability: String {
+        guard model.connected, model.statusFresh else { return model.connected ? model.connectionMessage : "未连接" }
+        return model.serviceRTT.map { "可达 · \($0) ms" } ?? "可达"
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -343,7 +346,6 @@ struct SettingsView: View {
                         }.disabled(model.busy || model.restoringConnection || key.isEmpty || address.isEmpty)
 
                     }
-                    Button("获取电话授权（麦克风）") { Task { await model.authorizeMicrophone() } }
                     Button("开启或重试短信提醒") { Task { await model.enableSMSNotifications() } }.disabled(!model.connected)
                 Group {
                     LabeledContent("访问权限", value: contactsPermission)
@@ -361,31 +363,27 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
 
-                } header: { Text("连接配置与电话授权") } footer: {
-                    Text("填写服务 HTTPS 根地址和独立 App Key。断开后保留最近一次地址和 Key，点击连接并验证即可恢复。电话授权用于通话麦克风和锁屏接听。")
+                } header: { Text("连接配置") } footer: {
+                    Text("填写服务 HTTPS 根地址和独立 App Key。断开后保留最近一次地址和 Key，点击连接并验证即可恢复。")
                 }
                 Section("当前状态") {
                     LabeledContent("App版本", value: "\(AppVersion.current)（\(AppVersion.build)）")
-                    Label(model.connectionTitle, systemImage: model.connected ? "checkmark.circle.fill" : "link").foregroundStyle(.teal)
-                    if !model.connected { Text(model.manuallyDisconnected ? "已断开，连接配置已保留。" : model.connectionMessage).font(.footnote).foregroundStyle(.secondary) }
+                    LabeledContent("状态") {
+                        Label(model.connectionTitle, systemImage: model.connected ? "checkmark.circle.fill" : "link").foregroundStyle(.teal)
+                    }
                     LabeledContent("电话服务", value: model.connected ? (model.status?.title ?? "待刷新") : "未连接")
                     LabeledContent("录音策略", value: model.status?.recording.map { $0 ? "开启" : "关闭" } ?? "未知")
                     LabeledContent("短信提醒", value: model.smsNotificationState)
+                    let diagnostics = model.connected ? model.diagnostics : nil
+                    LabeledContent("SIM", value: diagnostics?.sim_status ?? "—")
+                    LabeledContent("SIM 网络", value: diagnostics?.network_status ?? "—")
+                    let signalQuality = diagnostics?.signal_sinr.map(SignalQuality.text)
+                    let fallbackSignal = diagnostics?.signal_rssi.map { "\($0)/31" }
+                    LabeledContent("信号质量", value: signalQuality ?? fallbackSignal ?? "—")
+                    LabeledContent("当前频段", value: diagnostics?.bandText ?? "—")
+                    LabeledContent("模块 → 服务", value: diagnostics.map { $0.module_available ? "可达 · \($0.module_rtt_ms) ms" : "暂不可达" } ?? "—")
+                    LabeledContent("服务 → 手机", value: phoneServiceReachability)
                     if model.connected {
-                        LabeledContent("手机 → 服务", value: model.statusFresh ? "可达" : model.connectionMessage)
-                        if let rtt = model.serviceRTT { LabeledContent("服务响应耗时", value: "\(rtt) ms") }
-                        if let checked = model.lastServiceCheck { LabeledContent("最近服务检测") { Text(checked, style: .time) } }
-                        if let d = model.diagnostics {
-                            LabeledContent("服务 → 模块", value: d.module_available ? "可达 · \(d.module_rtt_ms) ms" : "暂不可达")
-                            LabeledContent("SIM", value: d.sim_status)
-                            LabeledContent("SIM 网络", value: d.network_status)
-                            if let sinr = d.signal_sinr { LabeledContent("信号质量", value: SignalQuality.text(sinr)) }
-                            if let band = d.bandText { LabeledContent("当前频段", value: band) }
-                            else if let signal = d.signal_rssi { LabeledContent("信号", value: "\(signal)/31") } // 旧服务端仅提供CSQ
-                            if let date = d.network_checked_at { Text("网络检测：" + date).font(.caption).foregroundStyle(.secondary) }
-                            LabeledContent("服务版本", value: d.server_version)
-                            Text("网络注册成功仍需实际验证语音可用；通话期间显示最近的网络检测结果。").font(.footnote).foregroundStyle(.secondary)
-                        }
                         if let message = model.diagnosticMessage { Text(message).foregroundStyle(.secondary) }
 
                         Button("刷新连接诊断") { model.refreshDiagnostics() }
@@ -428,6 +426,11 @@ struct SettingsView: View {
                 } header: { Text("历史状态") } footer: {
                     Text("查看最近 24 小时在线率、检测覆盖率及断线重连记录。连接服务后可查看。")
                 }
+                Section {
+                    Button("获取电话授权") { Task { await model.authorizeMicrophone() } }
+                } header: { Text("电话授权") } footer: {
+                    Text("用于通话采音和锁屏接听，通常只需授权一次。")
+                }
             }.navigationTitle("设置")
                 .toolbar { NavigationLink("关于") { Form {
                 Section("数据与推送") {
@@ -437,6 +440,7 @@ struct SettingsView: View {
                 .font(.footnote)
                 Section("关于随行号") {
                     LabeledContent("App版本", value: AppVersion.current)
+                    LabeledContent("服务端版本", value: model.diagnostics?.server_version ?? "—")
                     LabeledContent("构建号", value: AppVersion.build)
                     LabeledContent("构建渠道", value: AppVersion.channel)
                     LabeledContent("源码提交", value: AppSource.current.commit ?? "未关联")

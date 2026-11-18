@@ -41,7 +41,7 @@ struct ConnectionSummary: Codable, Identifiable, Sendable {
     var sinr_median: Int? = nil
     var sinr_samples: Int? = nil
     var id: String { layer }
-    var title: String { ["phone":"手机 → 服务", "module":"服务 → 模块", "network":"模块蜂窝网络"][layer] ?? layer }
+    var title: String { ["phone":"服务 → 手机", "module":"模块 → 服务", "network":"模块蜂窝网络"][layer] ?? layer }
     var rateText: String { online_rate.map { String(format: "%.1f%%", $0 * 100) } ?? "暂无有效检测" }
     var coverageText: String { String(format: "%.1f%%", coverage * 100) }
 

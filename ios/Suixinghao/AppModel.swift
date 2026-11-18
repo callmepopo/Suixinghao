@@ -12,7 +12,6 @@ final class AppModel {
     var notice: String?
     var connectionMessage = "等待连接"
     var serviceRTT: Int?
-    var lastServiceCheck: Date?
     var diagnostics: PhoneDiagnostics?
     var diagnosticMessage: String?
     var connectionHistory: ConnectionHistory?
@@ -226,7 +225,6 @@ final class AppModel {
                 let checkStarted = Date()
                 let initialStatus = try await self.api.read(CallStatus.self, base: url, path: "voice-test/status", token: session.token, timeout: 5)
                 self.serviceRTT = Int(Date().timeIntervalSince(checkStarted) * 1000)
-                self.lastServiceCheck = Date()
                 try Task.checkCancellation()
                 guard self.epoch == run else { throw CancellationError() }
                 self.connectionStage = "keychain-save"
@@ -776,7 +774,6 @@ final class AppModel {
             try Task.checkCancellation()
             guard self.epoch == run else { throw CancellationError() }
             self.serviceRTT = Int(Date().timeIntervalSince(checkStarted) * 1000)
-            self.lastServiceCheck = Date()
             self.connectionMessage = "电话服务已连接"
             self.applyStatus(value)
         }
@@ -1390,12 +1387,22 @@ final class AppModel {
         do { try await reloadContent() }
         catch { notice = "短信已删除，列表暂未刷新，请下拉刷新。" }
     }
-    func send(number: String, message: String, device: String, showNotice: Bool = true, allowShortCode: Bool = false) async -> Bool {
+    func send(number: String, message: String, device: String) async -> Bool {
+        await sendSMS(message: message, device: device, showNotice: true) {
+            try API.normalizedSMSSendNumber(number)
+        }
+    }
+    func reply(to contact: SMSContact, message: String, device: String) async -> Bool {
+        await sendSMS(message: message, device: device, showNotice: false) {
+            try API.normalizedSMSReplyNumber(contact.peer)
+        }
+    }
+    private func sendSMS(message: String, device: String, showNotice: Bool, recipient: () throws -> String) async -> Bool {
         var success = false
         await perform {
             guard !demo, connected, let base else { throw APIError(message: "演示模式不会发送真实短信。") }
             guard !device.isEmpty, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw APIError(message: "请选择设备并填写正文。") }
-            let phone = allowShortCode ? try API.normalizedSMSReplyNumber(number) : try API.normalizedNumber(number)
+            let phone = try recipient()
             _ = try await api.request(base, path: "voice-test/app/sms/send", token: smsToken, body: ["device_id": device, "phone": phone, "message": message])
             success = true
             if showNotice { notice = "已提交发送；是否送达以收件方实际收到为准。" }
