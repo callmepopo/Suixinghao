@@ -346,35 +346,25 @@ struct SettingsView: View {
                         }.disabled(model.busy || model.restoringConnection || key.isEmpty || address.isEmpty)
 
                     }
-                    Button("开启或重试短信提醒") { Task { await model.enableSMSNotifications() } }.disabled(!model.connected)
-                Group {
-                    LabeledContent("访问权限", value: contactsPermission)
-                    Button(contactsPermission == "未授权" ? "前往系统设置授权" : "获取或刷新通讯录权限") {
-                        Task {
-                            if contactsPermission == "未授权" {
-                                if let url = URL(string: UIApplication.openSettingsURLString) { await UIApplication.shared.open(url) }
-                            } else {
-                                _ = try? await PhoneContacts.load()
-                                contactsPermission = PhoneContacts.permissionDescription
-                            }
-                        }
-                    }
-                    Text("授权后，拨号键盘输入数字会匹配联系人姓名拼音首字母和电话号码；来电也会在本机匹配姓名。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-
                 } header: { Text("连接配置") } footer: {
                     Text("填写服务 HTTPS 根地址和独立 App Key。断开后保留最近一次地址和 Key，点击连接并验证即可恢复。")
                 }
                 Section("当前状态") {
+                    let diagnostics = model.connected ? model.diagnostics : nil
                     LabeledContent("App版本", value: "\(AppVersion.current)（\(AppVersion.build)）")
-                    LabeledContent("状态") {
-                        Label(model.connectionTitle, systemImage: model.connected ? "checkmark.circle.fill" : "link").foregroundStyle(.teal)
+                    LabeledContent("服务端版本", value: diagnostics?.server_version ?? "—")
+                    HStack {
+                        Text("状态")
+                        Spacer()
+                        Label(model.connectionTitle, systemImage: model.connected ? "checkmark.circle.fill" : "link")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(.teal)
                     }
+                    .accessibilityElement(children: .combine)
                     LabeledContent("电话服务", value: model.connected ? (model.status?.title ?? "待刷新") : "未连接")
                     LabeledContent("录音策略", value: model.status?.recording.map { $0 ? "开启" : "关闭" } ?? "未知")
                     LabeledContent("短信提醒", value: model.smsNotificationState)
-                    let diagnostics = model.connected ? model.diagnostics : nil
                     LabeledContent("SIM", value: diagnostics?.sim_status ?? "—")
                     LabeledContent("SIM 网络", value: diagnostics?.network_status ?? "—")
                     let signalQuality = diagnostics?.signal_sinr.map(SignalQuality.text)
@@ -428,8 +418,23 @@ struct SettingsView: View {
                 }
                 Section {
                     Button("获取电话授权") { Task { await model.authorizeMicrophone() } }
-                } header: { Text("电话授权") } footer: {
-                    Text("用于通话采音和锁屏接听，通常只需授权一次。")
+                    Text("电话授权用于通话采音和锁屏接听，通常只需授权一次。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button("开启或重试短信提醒") { Task { await model.enableSMSNotifications() } }
+                        .disabled(!model.connected)
+                    LabeledContent("通讯录权限", value: contactsPermission)
+                    Button(contactsPermission == "未授权" ? "前往系统设置授权" : "获取或刷新通讯录权限") {
+                        Task {
+                            if contactsPermission == "未授权" {
+                                if let url = URL(string: UIApplication.openSettingsURLString) { await UIApplication.shared.open(url) }
+                            } else {
+                                _ = try? await PhoneContacts.load()
+                                contactsPermission = PhoneContacts.permissionDescription
+                            }
+                        }
+                    }
+                } header: { Text("权限与提醒") } footer: {
+                    Text("授权后，拨号时会按姓名拼音首字母和号码匹配联系人，来电时会在本机匹配姓名。")
                 }
             }.navigationTitle("设置")
                 .toolbar { NavigationLink("关于") { Form {
