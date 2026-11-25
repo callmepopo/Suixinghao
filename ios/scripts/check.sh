@@ -25,6 +25,8 @@ xcrun swiftc -parse-as-library -module-cache-path .build/checks/module-cache Sui
 .build/checks/dialer-layout-check
 xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/VerificationCode.swift scripts/verification-code-check.swift -o .build/checks/verification-code-check
 .build/checks/verification-code-check
+xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/SMSWebLinks.swift scripts/sms-web-links-check.swift -o .build/checks/sms-web-links-check
+.build/checks/sms-web-links-check
 xcrun swiftc -module-cache-path .build/checks/module-cache Suixinghao/IncomingReminderState.swift scripts/reminder-check.swift -o .build/checks/reminder-check
 .build/checks/reminder-check
 xcrun swiftc -parse-as-library -module-cache-path .build/checks/module-cache Suixinghao/IncomingReminderState.swift Suixinghao/IncomingCallReminder.swift scripts/reminder-race-check.swift -o .build/checks/reminder-race-check

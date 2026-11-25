@@ -44,10 +44,13 @@ struct CallRecord: Codable, Identifiable {
     let startedAt: Date
     var answeredAt: Date?
     var endedAt: Date?
+    var missedCallViewed: Bool? = nil
+    var isMissedIncoming: Bool { direction == "来电" && answeredAt == nil && endedAt != nil }
+    var isUnreadMissedIncoming: Bool { isMissedIncoming && missedCallViewed != true }
     var result: String {
         if endedAt == nil { return answeredAt == nil ? (direction == "来电" ? "呼入中" : "拨号中") : "通话中" }
         if answeredAt != nil { return "已接通" }
-        return direction == "来电" ? "未接来电" : "未接通"
+        return isMissedIncoming ? "未接来电" : "未接通"
     }
     var duration: TimeInterval { answeredAt.map { max(0, (endedAt ?? Date()).timeIntervalSince($0)) } ?? 0 }
 }

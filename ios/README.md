@@ -77,6 +77,8 @@ SXH_DEVELOPMENT_TEAM=YOUR_TEAM_ID SXH_ALLOW_PROVISIONING_UPDATES=1 ./scripts/arc
 ## 数据与隐私
 
 - 服务地址、App Key 及最近通话记录保存到 `ThisDeviceOnly` 本机钥匙串，不通过 iCloud 同步。新 Bundle ID 使用独立访问组。断开保留最近连接配置以供手动重连；远端 Key 的撤销由服务管理者操作。
+- 底部导航从左到右是「历史」「电话」「短信」「设置」，启动默认打开电话页。「历史」红色角标显示本机未查看的未接来电数，打开历史页后角标消失。已查看状态和通话记录一起在本机按服务器保存。点记录可把号码填回拨号页。
+- 短信会话在本机识别正文中的 HTTP／HTTPS 网页链接，点按后由 iOS 用默认浏览器打开。通用链接按系统规则可能打开关联 App。正文可长按复制，验证码可单独复制。
 - 通讯录匹配在本机内存进行，不上传整本通讯录。麦克风仅用于已授权通话，短信正文与会话不作为客户端持久缓存。
 - 连接历史保存于受保护且排除备份的本机应用数据目录；诊断事件在空闲且联网时上传到使用者配置的服务。通话和短信经该服务与运营商处理，服务端是否录音、如何保留短信与日志由该部署配置决定。
 - `Suixinghao/PrivacyInfo.xcprivacy` 声明文件时间戳 API 的 `C617.1` 原因：连接历史仅读取本 App 沙盒文件的时间戳和大小，用于日志合并和存储管理。[Apple 官方原因清单](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)

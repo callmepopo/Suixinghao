@@ -2,20 +2,42 @@ import SwiftUI
 import UIKit
 
 struct RootView: View {
+    private enum AppTab: Hashable { case history, phone, messages, settings }
+
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var phase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var historyDialNumber: String?
     #if DEBUG
-    @State private var selectedTab = ProcessInfo.processInfo.arguments.contains("--preview-settings") ? 2 : (ProcessInfo.processInfo.arguments.contains("--preview-messages") ? 1 : 0)
+    @State private var selectedTab: AppTab = ProcessInfo.processInfo.arguments.contains("--preview-settings") ? .settings : (ProcessInfo.processInfo.arguments.contains("--preview-messages") ? .messages : .phone)
     #else
-    @State private var selectedTab = 0
+    @State private var selectedTab: AppTab = .phone
     #endif
+
     var body: some View {
-        @Bindable var model = model
         TabView(selection: $selectedTab) {
-            PhoneView().tag(0).tabItem { Label("电话", systemImage: "phone.fill") }
-            MessagesView().tag(1).tabItem { Label("短信", systemImage: "message.fill") }
-            SettingsView().tag(2).tabItem { Label("设置", systemImage: "slider.horizontal.3") }
+            Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) {
+                CallHistoryView { number in
+                    historyDialNumber = number
+                    selectedTab = .phone
+                }
+                .environment(\.horizontalSizeClass, horizontalSizeClass)
+            }
+            .badge(model.unreadMissedCallCount)
+            Tab("电话", systemImage: "phone.fill", value: AppTab.phone) {
+                PhoneView(historyDialNumber: $historyDialNumber)
+                    .environment(\.horizontalSizeClass, horizontalSizeClass)
+            }
+            Tab("短信", systemImage: "message.fill", value: AppTab.messages) {
+                MessagesView()
+                    .environment(\.horizontalSizeClass, horizontalSizeClass)
+            }
+            Tab("设置", systemImage: "slider.horizontal.3", value: AppTab.settings) {
+                SettingsView()
+                    .environment(\.horizontalSizeClass, horizontalSizeClass)
+            }
         }
+        .environment(\.horizontalSizeClass, DeviceTraits.isPad ? .compact : horizontalSizeClass)
         .tint(.teal)
         .task {
             // iPad windows resize freely; below this size the dialer would clip its call button.
@@ -36,10 +58,13 @@ struct RootView: View {
             }
         }
         .onChange(of: model.openSMSFromNotification) { _, open in
-            if open { selectedTab = 1; model.openSMSFromNotification = false }
+            if open { selectedTab = .messages; model.openSMSFromNotification = false }
         }
         .onChange(of: model.externalDialNumber) { _, incoming in
-            if incoming != nil { selectedTab = 0 }
+            if incoming != nil { selectedTab = .phone }
+        }
+        .onChange(of: selectedTab == .history && phase == .active ? model.unreadMissedCallCount : 0, initial: true) { _, count in
+            if count > 0 { model.markMissedCallsViewed() }
         }
         .alert("随行号", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("知道了") { model.notice = nil }
@@ -50,7 +75,6 @@ struct RootView: View {
 
 struct CallHistoryView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
     let selectNumber: (String) -> Void
     @State private var confirmingClear = false
     @State private var names: [String: String] = [:]
@@ -70,7 +94,7 @@ struct CallHistoryView: View {
                     Button { selectNumber(record.number) } label: {
                         HStack(spacing: 12) {
                             Image(systemName: record.direction == "来电" ? "phone.arrow.down.left" : "phone.arrow.up.right")
-                                .foregroundStyle(record.result == "未接来电" ? .red : .teal)
+                                .foregroundStyle(record.isMissedIncoming ? .red : .teal)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(names[normalized(record.number)] ?? record.number)
                                     .font(.headline).foregroundStyle(.primary)
@@ -89,7 +113,6 @@ struct CallHistoryView: View {
             }
             .navigationTitle("通话记录").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("清空", role: .destructive) { confirmingClear = true }
                         .disabled(model.callHistory.isEmpty)
@@ -196,7 +219,7 @@ struct ThreadView: View {
                 if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load() } } }
                 ForEach(messages) { message in
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(message.content).textSelection(.enabled)
+                        Text(SMSWebLinks.attributedText(message.content)).textSelection(.enabled)
                         if message.type == 1, let code = VerificationCode.extract(from: message.content) {
                             Button {
                                 UIPasteboard.general.string = code

@@ -27,6 +27,20 @@ final class SMSDeleteProtocol: URLProtocol {
         try check(!restored.shouldAutoRestore && restored.address == legacy.address && restored.key == legacy.key, "主动断开状态及地址Key保留")
         paused.disconnected = nil
         try check(paused.shouldAutoRestore, "重连解除主动断开")
+        let oldHistory = Data(#"""
+        [
+            {"id":"missed","number":"000","direction":"来电","startedAt":0,"endedAt":10},
+            {"id":"ringing","number":"000","direction":"来电","startedAt":20},
+            {"id":"answered","number":"000","direction":"来电","startedAt":30,"answeredAt":31,"endedAt":40},
+            {"id":"outgoing","number":"000","direction":"去电","startedAt":50,"endedAt":60}
+        ]
+        """#.utf8)
+        var records = try JSONDecoder().decode([CallRecord].self, from: oldHistory)
+        try check(records.filter(\.isUnreadMissedIncoming).map(\.id) == ["missed"], "旧通话记录中仅已结束且未接的来电计入角标")
+        records[0].missedCallViewed = true
+        let reloaded = try JSONDecoder().decode([CallRecord].self, from: JSONEncoder().encode(records))
+        try check(reloaded.allSatisfy { !$0.isUnreadMissedIncoming }, "已读状态随通话记录保存")
+        try check(reloaded.first?.isMissedIncoming == true, "标记已读后保留未接结果")
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SMSDeleteProtocol.self]
         let api = API()
@@ -48,6 +62,6 @@ final class SMSDeleteProtocol: URLProtocol {
         do { try await api.deleteSMS(base, token: "synthetic-key", contact: contact, messageID: 0); fatalError("接受无效ID") }
         catch is APIError {}
         try check(SMSDeleteProtocol.requests.count == count, "无效删除不发请求")
-        print("SMS deletion and saved disconnect migration/persistence checks passed")
+        print("SMS deletion, saved connection and call history migration/persistence checks passed")
     }
 }

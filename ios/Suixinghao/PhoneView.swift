@@ -10,6 +10,7 @@ import UIKit
 struct PhoneView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var phase
+    @Binding var historyDialNumber: String?
     @State private var dialInput = DialerInput()
     private var number: String {
         get { dialInput.number }
@@ -18,7 +19,6 @@ struct PhoneView: View {
     @State private var phoneContacts: [PhoneContact] = []
     @State private var contactMatches: [PhoneContact] = []
     @State private var selectedContact: String?
-    @State private var showingHistory = false
     @State private var handingOffSystemCall = false
     @State private var lastDialed: String?
     @State private var toast: String?
@@ -56,7 +56,7 @@ struct PhoneView: View {
             let inputPhase: DialerInput.Phase = value == .background ? .background : (value == .active ? .active : .inactive)
             if dialInput.transition(to: inputPhase,
                                     callInProgress: owned || model.status?.hasCall == true || model.systemCallPreparing,
-                                    pendingExternalNumber: model.externalDialNumber != nil) {
+                                    pendingExternalNumber: model.externalDialNumber != nil || historyDialNumber != nil) {
                 selectedContact = nil
                 contactMatches = []
             }
@@ -65,13 +65,10 @@ struct PhoneView: View {
         .onChange(of: model.externalDialNumber) { _, incoming in
             receiveExternalNumber(incoming)
         }
-        .sheet(isPresented: $showingHistory) {
-            CallHistoryView { chosen in
-                number = chosen
-                selectedContact = nil
-                updateMatches()
-                showingHistory = false
-            }
+        .onChange(of: historyDialNumber, initial: true) { _, chosen in
+            guard let chosen else { return }
+            fillDialNumber(chosen)
+            historyDialNumber = nil
         }
     }
 
@@ -115,9 +112,7 @@ struct PhoneView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            Button { showingHistory = true } label: {
-                Image(systemName: "clock.arrow.circlepath").font(.body).frame(width: 44, height: 36)
-            }.buttonStyle(.plain).foregroundStyle(.teal).accessibilityLabel("通话记录")
+            Color.clear.frame(width: 44, height: 36).accessibilityHidden(true)
             Spacer(minLength: 4)
             HStack(spacing: 5) {
                 Text("随行号").fontWeight(.semibold)
@@ -298,14 +293,17 @@ struct PhoneView: View {
     }
     private func receiveExternalNumber(_ incoming: String?) {
         guard let incoming else { return }
-        number = incoming
-        selectedContact = nil
-        updateMatches()
+        fillDialNumber(incoming)
         model.externalDialNumber = nil
         #if DEBUG
         model.externalCallRoute = "系统号码已填入拨号页"
         print("Suixinghao incoming number filled in dialer")
         #endif
+    }
+    private func fillDialNumber(_ chosen: String) {
+        number = chosen
+        selectedContact = nil
+        updateMatches()
     }
     private func showToast(_ message: String) {
         UINotificationFeedbackGenerator().notificationOccurred(.warning)

@@ -66,7 +66,11 @@ final class AppModel {
     var externalCallRoute = "尚未收到系统号码事件"
     #endif
     var callerDisplayName: String?
-    var callHistory: [CallRecord] = []
+    private(set) var callHistory: [CallRecord] = []
+    var unreadMissedCallCount: Int { callHistory.count(where: \.isUnreadMissedIncoming) }
+    #if DEBUG && targetEnvironment(simulator)
+    private let previewCallHistory = ProcessInfo.processInfo.arguments.contains("--preview-call-history")
+    #endif
 
     func acceptExternalCall(_ raw: String) {
         do {
@@ -260,6 +264,18 @@ final class AppModel {
         guard !startupStarted else { return }
         startupStarted = true
         #if DEBUG
+        #if targetEnvironment(simulator)
+        if previewCallHistory {
+            let now = Date()
+            callHistory = [
+                .init(id: "preview-missed-1", number: "0000000001", direction: "来电", startedAt: now.addingTimeInterval(-30), endedAt: now),
+                .init(id: "preview-missed-2", number: "0000000002", direction: "来电", startedAt: now.addingTimeInterval(-90), endedAt: now.addingTimeInterval(-60)),
+                .init(id: "preview-answered", number: "0000000003", direction: "来电", startedAt: now.addingTimeInterval(-150), answeredAt: now.addingTimeInterval(-145), endedAt: now.addingTimeInterval(-120)),
+                .init(id: "preview-outgoing", number: "0000000004", direction: "去电", startedAt: now.addingTimeInterval(-210), endedAt: now.addingTimeInterval(-180))
+            ]
+            return
+        }
+        #endif
         if ProcessInfo.processInfo.arguments.contains("--preview-history") {
             let now = Date().timeIntervalSince1970
             let events = [
@@ -873,6 +889,9 @@ final class AppModel {
         }
     }
     func foreground(_ value: Bool) async {
+        #if DEBUG && targetEnvironment(simulator)
+        if previewCallHistory { return }
+        #endif
         isForeground = value
         if value || canRunCallInBackground {
             telemetry.resume(); telemetry.network(available: networkAvailable, changed: false)
@@ -1321,6 +1340,18 @@ final class AppModel {
         callHistory[index].endedAt = Date()
         persistCallHistory()
     }
+    func markMissedCallsViewed() {
+        let unread = callHistory.indices.filter { callHistory[$0].isUnreadMissedIncoming }
+        guard !unread.isEmpty else { return }
+        var records = callHistory
+        for index in unread { records[index].missedCallViewed = true }
+        do {
+            try CallHistoryStore.save(records, server: endpoint)
+            callHistory = records
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
     func clearCallHistory() {
         do { try CallHistoryStore.clear(server: endpoint); callHistory = [] }
         catch { notice = error.localizedDescription }
@@ -1360,7 +1391,8 @@ final class AppModel {
         // Synthetic layout fixture for the verification-code copy button.
         if demo, ProcessInfo.processInfo.arguments.contains("--preview-sms-code") {
             return [.init(id: 1, content: "【示例】您的验证码为 482913，5分钟内有效，请勿泄露。", timestamp: "演示消息", type: 1),
-                    .init(id: 2, content: "收到，谢谢。", timestamp: "演示消息", type: 2)]
+                    .init(id: 2, content: "收到，谢谢。", timestamp: "演示消息", type: 2),
+                    .init(id: 3, content: "【示例】详情请访问 https://example.com/，谢谢。", timestamp: "演示消息", type: 1)]
         }
         #endif
         if demo { return [.init(id: 1, content: contact.last_content, timestamp: "演示消息", type: 1)] }

@@ -8,6 +8,8 @@ Suixinghao (随行号), provided by Junpo Xu, connects your iPhone to a compatib
 
 The app sends dialed numbers, SMS recipients and messages to your configured server to perform the actions you request. Call audio travels between your phone and that server. SMS content and cellular device information are retrieved from your server for display. The official push relay does not receive phone numbers, SMS content, contacts or call audio.
 
+The app identifies web links in messages on your device. When you tap a link, the app gives its address to iOS to open. The destination may process your visit under its own policy.
+
 Your server stores SMS and may store call recordings if its administrator enables recording. Recordings require the consent of call participants where applicable. Retention and backups are controlled by that server operator. The supplied server limits each recording to one hour and rotates the active recording directory at 1 GiB; backups may have different retention.
 
 ## Data on your iPhone
