@@ -4,7 +4,7 @@
 
 将家里的蜂窝通信模块接入自建服务，在 iPhone 或 iPad 上使用自己的号码收发短信、拨打和接听电话。网页用于验证部署，随行号 App 是日常使用入口。
 
-> **App 0.1.14（build 71）已上架 App Store**，[App Store下载](https://apps.apple.com/us/app/id6820851330)；**App 0.2.0（build 74）起支持iPad**，已通过TestFlight外部测试审核（2026-11-10核对），见[app-v0.2.0](https://github.com/callmepopo/Suixinghao/releases/tag/app-v0.2.0)。服务端当前为0.1.14/build15，GitHub服务包仍以prerelease提供，两版App均无需升级服务端；支持通话切网重连、声音设备切换、延迟优化及推送授权重新申请。
+> **App 0.1.14（build 71）已上架 App Store**，[App Store下载](https://apps.apple.com/us/app/id6820851330)。外部 TestFlight 当前可安装 **0.2.0（build 74）**，支持 iPad。**0.2.2（build 81）** 已通过内部测试，于 2026-11-25 提交外部 Beta 审核，包含「历史」入口、未接来电角标和可点开的短信网页链接。GitHub 服务端安装包见下方。
 
 服务端0.1.14/build15新增默认官方中继，并保留0.1.13起的授权重新申请功能：允许用户主动解除后保留同一NAS实例身份重新申请，并在现有官方App中再次确认；旧凭据永久失效，发布者管理员撤销仍不可自行恢复。可从[独立服务端测试版 Release](https://github.com/callmepopo/Suixinghao/releases/tag/server-v0.1.14)下载，iOS App不需修改或升版。**已注册的中继域名继续可用，原凭证与授权不因新域名上线失效。新的默认中继地址是 `sxhpush.jphr.cc`；升级保留已有显式配置及自动授权原地址，不自动迁移。**
 
